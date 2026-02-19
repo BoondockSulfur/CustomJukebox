@@ -1,0 +1,132 @@
+# CustomJukebox - Archivo de idioma español
+# Usa & para códigos de color
+# Marcadores de posición disponibles: {player}, {disc}, {amount}, {world}, etc.
+
+# General
+prefix: "&8[&6CustomJukebox&8]&r "
+no-permission: "&c¡No tienes permiso para hacer eso!"
+player-not-found: "&c¡Jugador no encontrado!"
+invalid-disc: "&c¡ID de disco no válido!"
+plugin-reloaded: "&a¡Plugin recargado con éxito!"
+
+# Comandos
+command-usage-reload: "&cUso: /cjb reload"
+command-usage-give: "&cUso: /cjb give <jugador> <disco> [cantidad]"
+command-usage-fragment: "&cUso: /cjb fragment <jugador> <disco> [cantidad]"
+command-usage-info: "&cUso: /cjb info <disco>"
+command-usage-play: "&cUso: /cjb play <disco> [loop] [global|world|<radio>]"
+command-usage-stop: "&cUso: /cjb stop"
+command-usage-volume: "&cUso: /cjb volume <0.0-4.0> [restart]"
+command-only-players: "&c¡Solo los jugadores pueden usar este comando!"
+command-unknown: "&cComando desconocido: &e/cjb {command}"
+command-unknown-help: "&7Usa &e/cjb help &7para una lista de comandos"
+
+# Gestión de discos
+disc-given: "&aDisco &e{disc} &adado a &e{player}"
+disc-received: "&aHas recibido: {disc}"
+fragment-given: "&e{amount} &afragmento(s) para el disco &e{disc} &adado a &e{player}"
+fragment-received: "&aHas recibido &e{amount} &afragmento(s) para &e{disc}"
+no-fragments: "&cNo se encontraron fragmentos para el disco: &e{disc}"
+fragments-help: "&7Asegúrate de que el disco tenga fragmentCount > 0 en discs.yml"
+
+# GUI
+gui-title: "&6Custom Jukebox"
+gui-admin-title: "&6Admin - Discos Personalizados"
+gui-click-to-get: "&7Haz clic para recibir este disco"
+gui-disc-info: "&7ID: &e{disc}"
+gui-disc-inserted: "&aHas insertado &e{disc} &aen el jukebox"
+gui-no-permission-disc: "&c¡No tienes permiso para recibir este disco!"
+gui-jukebox-occupied: "&c¡El jukebox ya tiene un disco!"
+gui-jukebox-invalid: "&c¡El jukebox ya no está disponible!"
+
+# Reproducción
+playback-started: "&aReproduciendo: &e{disc}"
+playback-stopped: "&cReproducción detenida"
+playback-all-stopped: "&cTodas las reproducciones detenidas"
+playback-loop-enabled: "&8(&eBucle activado&8)"
+playback-range-info: "&8(&7Alcance: &e{range}&8)"
+playback-invalid-range: "&c¡Alcance no válido: &e{range}&c! Usa: global, world o un número"
+playback-invalid-parameter: "&c¡Parámetro no válido: &e{parameter}&c!"
+playback-disc-inserted: "&aDisco insertado: &e{disc}"
+playback-disc-ejected: "&cDisco expulsado"
+playback-now-playing: "&7Ahora reproduciendo:"
+
+# Resource Pack
+resourcepack-required: "&e¡Se requiere paquete de recursos para sonidos personalizados!"
+resourcepack-declined: "&c¡Has rechazado el paquete de recursos!"
+resourcepack-loaded: "&a¡Paquete de recursos cargado con éxito!"
+resourcepack-failed: "&c¡Error al cargar el paquete de recursos!"
+resourcepack-kick-message: "&c¡Debes aceptar el paquete de recursos para escuchar música personalizada!"
+
+# Sistema de fragmentos
+fragment-drop-creeper: "&a¡Creeper soltó &e{amount} &afragmento(s)!"
+fragment-found-loot: "&a¡Encontrado &e{amount} &afragmento(s) en el botín!"
+fragment-craft-success: "&a¡Creado &e{disc} &ade fragmentos!"
+fragment-craft-failed: "&c¡No hay suficientes fragmentos para crear este disco!"
+fragment-craft-wrong: "&c¡Necesitas fragmentos para el mismo disco!"
+
+# Mensajes de información
+info-disc-not-found: "&cDisco no encontrado: &e{disc}"
+info-total-discs: "&7Discos totales: &e{amount}"
+info-total-fragments: "&7Fragmentos totales: &e{amount}"
+info-header: "&6&l=== Información del Disco ==="
+info-id: "&7ID: &e{value}"
+info-display-name: "&7Nombre: &f{value}"
+info-author: "&7Autor: &f{value}"
+info-type: "&7Tipo: &f{value}"
+info-custom-model-data: "&7CustomModelData: &f{value}"
+info-description: "&7Descripción: &f{value}"
+info-sound-header: "&6Información de Sonido:"
+info-sound-key: "&7  Clave de Sonido: &b{value}"
+info-duration: "&7  Duración: &b{seconds} segundos &8({ticks} ticks)"
+info-sound-vanilla: "&7Sonido: &8Usa sonido de disco vanilla"
+info-fragment-header: "&6Sistema de Fragmentos:"
+info-fragment-required: "&7  Requerido: &a{amount} fragmentos"
+info-fragment-enabled: "&7  Crafting: &aActivado"
+info-fragment-disabled: "&7Sistema de Fragmentos: &8Desactivado"
+
+# Errores
+error-command-failed: "&c¡Ocurrió un error al ejecutar este comando!"
+error-invalid-amount: "&c¡Cantidad no válida! Usando 1."
+error-disc-load: "&cError al cargar el disco: &e{disc}"
+error-fragment-create: "&cError al crear fragmento para: &e{disc}"
+
+# Mensajes de éxito
+success-reload: "&a¡CustomJukebox recargado con éxito!"
+success-disc-added: "&aDisco añadido: &e{disc}"
+success-disc-removed: "&cDisco eliminado: &e{disc}"
+
+# Mensajes de ayuda
+help-header: "&6&l╔═══════════════════════════════════╗"
+help-title: "&6&l║    &eComandos CustomJukebox&6&l    ║"
+help-footer: "&6&l╚═══════════════════════════════════╝"
+help-tip: "&8Consejo: ¡Usa TAB para autocompletar!"
+help-version: "&7Versión: &e{version}"
+help-loaded-discs: "&7Discos Cargados: &e{amount}"
+help-command-format: "&6● &e{usage}"
+help-description-format: "  &7{description}"
+help-help-line: "&6/cjb help &7- Mostrar este mensaje de ayuda"
+
+# Mensajes de lista
+list-header: "&6&l=== Discos Personalizados ==="
+list-total: "&7Total: &e{amount} discos"
+list-disc-format: "&6● &e{disc}"
+
+# Volumen
+volume-current: "&7Volumen actual: &e{volume}"
+volume-set: "&aVolumen establecido en: &e{volume}"
+volume-set-preset: "&aPreajuste de volumen &e{preset} &aestablecido: &e{volume}"
+volume-restarted: "&7Todas las reproducciones activas han sido reiniciadas"
+volume-invalid: "&c¡Volumen no válido! Usa un número entre 0.0 y 4.0 o un preajuste"
+volume-invalid-range: "&c¡El volumen debe estar entre 0.0 y 4.0!"
+
+# Silenciar/Activar
+mute-success: "&aTodas las reproducciones han sido silenciadas (Volumen: 0.0)"
+mute-already-muted: "&c¡La reproducción ya está silenciada!"
+unmute-success: "&aSilencio desactivado (Volumen: {volume})"
+unmute-not-muted: "&c¡La reproducción no está silenciada! (Volumen actual: {volume})"
+
+# Advertencias
+warning-debug-mode: "&e¡El modo de depuración está activado!"
+warning-no-discs: "&e¡No se cargaron discos personalizados!"
+warning-no-resourcepack: "&e¡No se configuró ningún paquete de recursos!"

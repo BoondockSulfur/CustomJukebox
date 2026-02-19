@@ -1,0 +1,164 @@
+# CustomJukebox - English Language File
+# Use & for color codes
+# Available placeholders: {player}, {disc}, {amount}, {world}, etc.
+
+# General
+prefix: "&8[&6CustomJukebox&8]&r "
+no-permission: "&cYou don't have permission to do that!"
+player-not-found: "&cPlayer not found!"
+invalid-disc: "&cInvalid disc ID!"
+plugin-reloaded: "&aPlugin reloaded successfully!"
+
+# Commands
+command-usage-reload: "&cUsage: /cjb reload"
+command-usage-give: "&cUsage: /cjb give <player> <disc> [amount]"
+command-usage-fragment: "&cUsage: /cjb fragment <player> <disc> [amount]"
+command-usage-info: "&cUsage: /cjb info <disc>"
+command-usage-play: "&cUsage: /cjb play <disc> [loop] [global|world|<radius>]"
+command-usage-stop: "&cUsage: /cjb stop"
+command-usage-volume: "&cUsage: /cjb volume <0.0-4.0> [restart]"
+command-usage-playlist: "&cUsage: /cjb playlist <list|info|play|create|delete|add|remove|rename|edit> [args...]"
+command-usage-playlist-info: "&cUsage: /cjb playlist info <playlist>"
+command-usage-playlist-play: "&cUsage: /cjb playlist play <playlist> [loop]"
+command-usage-playlist-create: "&cUsage: /cjb playlist create <id> [display name]"
+command-usage-playlist-delete: "&cUsage: /cjb playlist delete <playlist>"
+command-usage-playlist-add: "&cUsage: /cjb playlist add <playlist> <disc>"
+command-usage-playlist-remove: "&cUsage: /cjb playlist remove <playlist> <disc>"
+command-usage-playlist-rename: "&cUsage: /cjb playlist rename <old-id> <new-id>"
+command-usage-playlist-edit: "&cUsage: /cjb playlist edit <playlist>"
+command-only-players: "&cOnly players can use this command!"
+command-unknown: "&cUnknown command: &e/cjb {command}"
+command-unknown-help: "&7Use &e/cjb help &7for a list of commands"
+
+# Disc Management
+disc-given: "&aGiven disc &e{disc} &ato &e{player}"
+disc-received: "&aYou received: {disc}"
+fragment-given: "&aGiven &e{amount} &afragment(s) for disc &e{disc} &ato &e{player}"
+fragment-received: "&aYou received &e{amount} &afragment(s) for &e{disc}"
+no-fragments: "&cNo fragments found for disc: &e{disc}"
+fragments-help: "&7Make sure the disc has fragmentCount > 0 in discs.yml"
+
+# GUI
+gui-title: "&6Custom Jukebox"
+gui-admin-title: "&6Admin - Custom Discs"
+gui-click-to-get: "&7Click to receive this disc"
+gui-disc-info: "&7ID: &e{disc}"
+gui-disc-inserted: "&aYou inserted &e{disc} &ainto the jukebox"
+gui-no-permission-disc: "&cYou don't have permission to receive this disc!"
+gui-jukebox-occupied: "&cThe jukebox already has a disc!"
+gui-jukebox-invalid: "&cThe jukebox is no longer available!"
+
+# Playback
+playback-started: "&aPlaying: &e{disc}"
+playback-stopped: "&cStopped playback"
+playback-all-stopped: "&cStopped all playbacks"
+playback-loop-enabled: "&8(&eLoop enabled&8)"
+playback-range-info: "&8(&7Range: &e{range}&8)"
+playback-invalid-range: "&cInvalid range: &e{range}&c! Use: global, world or a number"
+playback-invalid-parameter: "&cInvalid parameter: &e{parameter}&c!"
+playback-disc-inserted: "&aDisc inserted: &e{disc}"
+playback-disc-ejected: "&cDisc ejected"
+playback-now-playing: "&7Now Playing:"
+
+# Resource Pack
+resourcepack-required: "&eResource pack required for custom sounds!"
+resourcepack-declined: "&cYou declined the resource pack!"
+resourcepack-loaded: "&aResource pack loaded successfully!"
+resourcepack-failed: "&cFailed to load resource pack!"
+resourcepack-kick-message: "&cYou need to accept the resource pack to hear custom music!"
+
+# Fragment System
+fragment-drop-creeper: "&aCreeper dropped &e{amount} &afragment(s)!"
+fragment-found-loot: "&aFound &e{amount} &afragment(s) in loot!"
+fragment-craft-success: "&aCrafted &e{disc} &afrom fragments!"
+fragment-craft-failed: "&cNot enough fragments to craft this disc!"
+fragment-craft-wrong: "&cYou need fragments for the same disc!"
+
+# Info Messages
+info-disc-not-found: "&cDisc not found: &e{disc}"
+info-total-discs: "&7Total discs: &e{amount}"
+info-total-fragments: "&7Total fragments: &e{amount}"
+info-header: "&6&l=== Disc Information ==="
+info-id: "&7ID: &e{value}"
+info-display-name: "&7Display Name: &f{value}"
+info-author: "&7Author: &f{value}"
+info-type: "&7Type: &f{value}"
+info-custom-model-data: "&7CustomModelData: &f{value}"
+info-description: "&7Description: &f{value}"
+info-sound-header: "&6Sound Information:"
+info-sound-key: "&7  Sound Key: &b{value}"
+info-duration: "&7  Duration: &b{seconds} seconds &8({ticks} ticks)"
+info-sound-vanilla: "&7Sound: &8Uses vanilla disc sound"
+info-fragment-header: "&6Fragment System:"
+info-fragment-required: "&7  Required: &a{amount} fragments"
+info-fragment-enabled: "&7  Crafting: &aEnabled"
+info-fragment-disabled: "&7Fragment System: &8Disabled"
+
+# Errors
+error-command-failed: "&cAn error occurred while executing this command!"
+error-invalid-amount: "&cInvalid amount! Using 1."
+error-disc-load: "&cFailed to load disc: &e{disc}"
+error-fragment-create: "&cFailed to create fragment for: &e{disc}"
+
+# Success Messages
+success-reload: "&aSuccessfully reloaded CustomJukebox!"
+success-disc-added: "&aDisc added: &e{disc}"
+success-disc-removed: "&cDisc removed: &e{disc}"
+
+# Help Messages
+help-header: "&6&l╔═══════════════════════════════════╗"
+help-title: "&6&l║    &eCustomJukebox Commands&6&l    ║"
+help-footer: "&6&l╚═══════════════════════════════════╝"
+help-tip: "&8Tip: Use TAB for auto-completion!"
+help-version: "&7Version: &e{version}"
+help-loaded-discs: "&7Loaded Discs: &e{amount}"
+help-command-format: "&6● &e{usage}"
+help-description-format: "  &7{description}"
+help-help-line: "&6/cjb help &7- Show this help message"
+
+# List Messages
+list-header: "&6&l=== Custom Discs ==="
+list-total: "&7Total: &e{amount} discs"
+list-disc-format: "&6● &e{disc}"
+
+# Volume
+volume-current: "&7Current volume: &e{volume}"
+volume-set: "&aVolume set to: &e{volume}"
+volume-set-preset: "&aVolume preset &e{preset} &aset: &e{volume}"
+volume-restarted: "&7All active playbacks have been restarted"
+volume-invalid: "&cInvalid volume! Use a number between 0.0 and 4.0 or a preset"
+volume-invalid-range: "&cVolume must be between 0.0 and 4.0!"
+
+# Mute/Unmute
+mute-success: "&aAll playbacks have been muted (Volume: 0.0)"
+mute-already-muted: "&cPlayback is already muted!"
+unmute-success: "&aUnmuted playback (Volume: {volume})"
+unmute-not-muted: "&cPlayback is not muted! (Current volume: {volume})"
+
+# Playlist
+playlist-list-header: "&6&l=== Playlists ==="
+playlist-list-entry: "&6● &e{id} &7- {name} &8({count} discs)"
+playlist-none-available: "&cNo playlists available!"
+playlist-not-found: "&cPlaylist not found: &e{playlist}"
+playlist-empty: "&cPlaylist &e{playlist} &cis empty!"
+playlist-started: "&aStarted playlist: {playlist} &7({count} discs)"
+playlist-loop-enabled: "&8(Looping)"
+playlist-info-header: "&6&l=== {name} &6&l==="
+playlist-info-id: "&7ID: &e{id}"
+playlist-info-description: "&7Description: &e{description}"
+playlist-info-count: "&7Discs: &e{count}"
+playlist-info-discs-header: "&6Discs in this playlist:"
+playlist-created: "&aPlaylist created: &e{playlist}"
+playlist-already-exists: "&cPlaylist &e{playlist} &calready exists!"
+playlist-deleted: "&cPlaylist deleted: &e{playlist}"
+playlist-disc-added: "&aAdded &e{disc} &ato playlist &e{playlist}"
+playlist-disc-add-failed: "&cFailed to add &e{disc} &cto &e{playlist}&c! Check if disc and playlist exist."
+playlist-disc-removed: "&cRemoved &e{disc} &cfrom playlist &e{playlist}"
+playlist-disc-remove-failed: "&cFailed to remove &e{disc} &cfrom &e{playlist}&c! Check if disc is in playlist."
+playlist-renamed: "&aRenamed playlist &e{old} &ato &e{new}"
+playlist-rename-failed: "&cFailed to rename &e{old} &cto &e{new}&c! Check if old playlist exists and new ID is available."
+
+# Warnings
+warning-debug-mode: "&eDebug mode is enabled!"
+warning-no-discs: "&eNo custom discs loaded!"
+warning-no-resourcepack: "&eNo resource pack configured!"

@@ -1,0 +1,19 @@
+Place your .ogg music files here!
+
+Files should be named exactly as defined in sounds.json, for example:
+- epic_journey.ogg
+- ocean_dreams.ogg
+- forest_walk.ogg
+
+To convert music to .ogg format:
+1. Use Audacity (free): File → Export → Export as OGG
+2. Or use ffmpeg: ffmpeg -i input.mp3 -c:a libvorbis -q:a 5 output.ogg
+3. Or use online converter: cloudconvert.com
+
+Recommendations:
+- Sample rate: 44100 Hz
+- Bitrate: 128-192 kbps
+- Mono or Stereo both work
+- Keep files under 10MB for best performance
+
+See README.md in the parent folder for full instructions!

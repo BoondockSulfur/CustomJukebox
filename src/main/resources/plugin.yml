@@ -1,0 +1,91 @@
+name: CustomJukebox
+version: ${version}
+main: de.boondocksulfur.customjukebox.CustomJukebox
+api-version: '1.21'
+author: BoondockSulfur
+description: Custom Jukebox Plugin with extended features
+folia-supported: true
+softdepend: [WorldGuard, GriefPrevention, PlaceholderAPI]
+
+commands:
+  cjb:
+    description: CustomJukebox main command
+    usage: /<command> <reload|give|fragment|list|info|gui|play|stop|volume|mute|unmute|playlist|help>
+    aliases: [customjukebox, jukebox, jb]
+    permission: customjukebox.use
+
+permissions:
+  # Parent permissions
+  customjukebox.admin:
+    description: Grants access to all CustomJukebox admin commands
+    default: op
+    children:
+      customjukebox.reload: true
+      customjukebox.give: true
+      customjukebox.fragment: true
+      customjukebox.list: true
+      customjukebox.info: true
+      customjukebox.gui: true
+      customjukebox.play: true
+      customjukebox.stop: true
+      customjukebox.volume: true
+      customjukebox.playlist: true
+      customjukebox.updatenotify: true
+
+  customjukebox.user:
+    description: Grants access to all CustomJukebox user commands
+    default: true
+    children:
+      customjukebox.use: true
+      customjukebox.gui: true
+      customjukebox.list: true
+      customjukebox.info: true
+
+  # Individual permissions
+  customjukebox.use:
+    description: Allows using custom jukeboxes
+    default: true
+
+  customjukebox.reload:
+    description: Allows reloading the plugin configuration
+    default: op
+
+  customjukebox.give:
+    description: Allows giving custom discs and fragments to players
+    default: op
+
+  customjukebox.fragment:
+    description: Allows giving fragments to players
+    default: op
+
+  customjukebox.list:
+    description: Allows listing all custom discs
+    default: true
+
+  customjukebox.info:
+    description: Allows viewing detailed information about discs
+    default: true
+
+  customjukebox.gui:
+    description: Allows opening the disc selection GUI
+    default: true
+
+  customjukebox.play:
+    description: Allows playing custom discs directly
+    default: op
+
+  customjukebox.stop:
+    description: Allows stopping all active playbacks
+    default: op
+
+  customjukebox.volume:
+    description: Allows changing the global playback volume, muting and unmuting
+    default: op
+
+  customjukebox.playlist:
+    description: Allows managing and playing playlists
+    default: op
+
+  customjukebox.updatenotify:
+    description: Receive notifications about available plugin updates
+    default: op

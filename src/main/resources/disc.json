@@ -1,0 +1,78 @@
+{
+  "categories": {
+    "ambient": {
+      "displayName": "&bAmbient Sounds",
+      "description": "Calm and peaceful background music"
+    },
+    "epic": {
+      "displayName": "&6Epic Music",
+      "description": "Grand and adventurous compositions"
+    },
+    "nature": {
+      "displayName": "&2Nature Sounds",
+      "description": "Sounds from the natural world"
+    }
+  },
+  "playlists": {
+    "relaxation": {
+      "displayName": "&dRelaxation Mix",
+      "description": "Relaxing music for peaceful moments",
+      "discs": ["ocean_dreams", "forest_walk"]
+    },
+    "adventure": {
+      "displayName": "&cAdventure Soundtrack",
+      "description": "Epic music for your adventures",
+      "discs": ["epic_journey"]
+    }
+  },
+  "discs": {
+    "epic_journey": {
+      "displayName": "&6Epic Journey",
+      "author": "&eUnknown Artist",
+      "sound": "minecraft:music_disc.epic_journey",
+      "type": "MUSIC_DISC_13",
+      "customModelData": 1001,
+      "durationTicks": 6000,
+      "fragmentCount": 9,
+      "category": "epic",
+      "lore": [
+        "&7An epic adventure awaits",
+        "&7Duration: 5:00",
+        "&eRequires 9 fragments to craft"
+      ],
+      "description": "Epic Journey"
+    },
+    "ocean_dreams": {
+      "displayName": "&bOcean Dreams",
+      "author": "&eUnknown Artist",
+      "sound": "minecraft:music_disc.ocean_dreams",
+      "type": "MUSIC_DISC_CAT",
+      "customModelData": 1002,
+      "durationTicks": 5400,
+      "fragmentCount": 9,
+      "category": "ambient",
+      "lore": [
+        "&7Calm waves and peaceful melodies",
+        "&7Duration: 4:30",
+        "&eRequires 9 fragments to craft"
+      ],
+      "description": "Ocean Dreams"
+    },
+    "forest_walk": {
+      "displayName": "&2Forest Walk",
+      "author": "&eUnknown Artist",
+      "sound": "minecraft:music_disc.forest_walk",
+      "type": "MUSIC_DISC_BLOCKS",
+      "customModelData": 1003,
+      "durationTicks": 4800,
+      "fragmentCount": 9,
+      "category": "nature",
+      "lore": [
+        "&7A peaceful stroll through nature",
+        "&7Duration: 4:00",
+        "&eRequires 9 fragments to craft"
+      ],
+      "description": "Forest Walk"
+    }
+  }
+}

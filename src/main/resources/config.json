@@ -1,0 +1,31 @@
+{
+  "settings": {
+    "enabled": true,
+    "language": "en",
+    "enable-gui": true,
+    "debug": false
+  },
+  "discs": {
+    "creeper-drops": true,
+    "creeper-drop-chance": 0.05,
+    "dungeon-loot": true,
+    "trail-ruins-loot": true,
+    "max-loot-discs": 2,
+    "loot-chance": 0.15,
+    "enable-crafting": true,
+    "fragments-per-disc": 9
+  },
+  "playback": {
+    "volume": 4.0,
+    "default-loop": false,
+    "jukebox-hearing-radius": 64
+  },
+  "parrots": {
+    "enable-dancing": true,
+    "dance-radius": 3
+  },
+  "integrations": {
+    "worldguard": true,
+    "griefprevention": true
+  }
+}

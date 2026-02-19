@@ -1,0 +1,26 @@
+{
+  "music_disc.epic_journey": {
+    "sounds": [
+      {
+        "name": "custom/music/epic_journey",
+        "stream": true
+      }
+    ]
+  },
+  "music_disc.ocean_dreams": {
+    "sounds": [
+      {
+        "name": "custom/music/ocean_dreams",
+        "stream": true
+      }
+    ]
+  },
+  "music_disc.forest_walk": {
+    "sounds": [
+      {
+        "name": "custom/music/forest_walk",
+        "stream": true
+      }
+    ]
+  }
+}
