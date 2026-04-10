@@ -39,4 +39,5 @@ desktop.ini
 *.bak
 *.swp
 *~
-n.claude/
+# Local documentation (not pushed)
+docs/internal/
