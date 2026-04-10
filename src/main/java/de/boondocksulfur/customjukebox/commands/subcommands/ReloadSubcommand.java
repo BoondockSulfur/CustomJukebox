@@ -2,6 +2,7 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.CommandSender;
 
 import java.util.ArrayList;
@@ -38,7 +39,7 @@ public class ReloadSubcommand implements SubCommand {
     @Override
     public boolean execute(CommandSender sender, String[] args) {
         plugin.reload();
-        sender.sendMessage(plugin.getLanguageManager().getMessage("plugin-reloaded"));
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("plugin-reloaded"));
         return true;
     }
 

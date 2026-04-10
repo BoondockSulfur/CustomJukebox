@@ -2,6 +2,7 @@ package de.boondocksulfur.customjukebox.gui;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import org.bukkit.Bukkit;
@@ -10,9 +11,11 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Step-by-step chat wizard for creating new categories.
+ * Thread-safe implementation using ConcurrentHashMap.
  *
  * @author BoondockSulfur
  * @version 1.3.0
@@ -21,7 +24,7 @@ import java.util.*;
 public class CategoryCreationWizard implements Listener {
 
     private final CustomJukebox plugin;
-    private final Map<UUID, CreationSession> activeSessions = new HashMap<>();
+    private final Map<UUID, CreationSession> activeSessions = new ConcurrentHashMap<>();
 
     public CategoryCreationWizard(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -34,15 +37,15 @@ public class CategoryCreationWizard implements Listener {
         CreationSession session = new CreationSession();
         activeSessions.put(player.getUniqueId(), session);
 
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eCategory Creation Wizard §6§l(1/3)  ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Enter the §eCategory ID §7(internal identifier):");
-        player.sendMessage("§8Example: §7ambient_music");
-        player.sendMessage("§8Format: §7lowercase, no spaces, use _ or -");
-        player.sendMessage("");
-        player.sendMessage("§7Type §ccancel §7to abort");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eCategory Creation Wizard &6&l(1/3)  ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Enter the &eCategory ID &7(internal identifier):");
+        MessageUtil.sendMessage(player, "&8Example: &7ambient_music");
+        MessageUtil.sendMessage(player, "&8Format: &7lowercase, no spaces, use _ or -");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Type &ccancel &7to abort");
     }
 
     @EventHandler(priority = org.bukkit.event.EventPriority.LOWEST)
@@ -58,7 +61,7 @@ public class CategoryCreationWizard implements Listener {
         String input = AdventureUtil.toLegacy(event.message());
 
         if (input.equalsIgnoreCase("cancel")) {
-            player.sendMessage("§cCategory creation cancelled.");
+            MessageUtil.sendMessage(player, "&cCategory creation cancelled.");
             activeSessions.remove(player.getUniqueId());
             return;
         }
@@ -74,17 +77,17 @@ public class CategoryCreationWizard implements Listener {
                     );
 
                     if (success) {
-                        player.sendMessage("");
-                        player.sendMessage("§a§l✓ §aCategory §e" + session.categoryId + " §acreated successfully!");
-                        player.sendMessage("");
+                        MessageUtil.sendMessage(player, "");
+                        MessageUtil.sendMessage(player, "&a&l✓ &aCategory &e" + session.categoryId + " &acreated successfully!");
+                        MessageUtil.sendMessage(player, "");
                     } else {
-                        player.sendMessage("§c§l✗ §cFailed to create category! Please try again.");
+                        MessageUtil.sendMessage(player, "&c&l✗ &cFailed to create category! Please try again.");
                     }
 
                     activeSessions.remove(player.getUniqueId());
                 });
             } else {
-                player.sendMessage("§cInvalid input! Type §aconfirm §cor §ccancel");
+                MessageUtil.sendMessage(player, "&cInvalid input! Type &aconfirm &cor &ccancel");
             }
             return;
         }
@@ -110,30 +113,30 @@ public class CategoryCreationWizard implements Listener {
     private void handleCategoryId(Player player, CreationSession session, String input) {
         // Validate ID
         if (!input.matches("[a-z0-9_-]+")) {
-            player.sendMessage("§cInvalid ID! Use only lowercase letters, numbers, _ and -");
-            player.sendMessage("§7Please try again:");
+            MessageUtil.sendMessage(player, "&cInvalid ID! Use only lowercase letters, numbers, _ and -");
+            MessageUtil.sendMessage(player, "&7Please try again:");
             return;
         }
 
         if (plugin.getDiscManager().getCategory(input) != null) {
-            player.sendMessage("§cA category with ID §e" + input + " §calready exists!");
-            player.sendMessage("§7Please choose a different ID:");
+            MessageUtil.sendMessage(player, "&cA category with ID &e" + input + " &calready exists!");
+            MessageUtil.sendMessage(player, "&7Please choose a different ID:");
             return;
         }
 
         session.categoryId = input;
         session.currentStep++;
 
-        player.sendMessage("");
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eCategory Creation Wizard §6§l(2/3)  ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Enter the §eDisplay Name §7(shown to players):");
-        player.sendMessage("§8Example: §7§6Ambient Music");
-        player.sendMessage("§8Colors: §7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
-        player.sendMessage("");
-        player.sendMessage("§7Type §ccancel §7to abort");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eCategory Creation Wizard &6&l(2/3)  ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Enter the &eDisplay Name &7(shown to players):");
+        MessageUtil.sendMessage(player, "&8Example: &7&6Ambient Music");
+        MessageUtil.sendMessage(player, "&8Colors: &7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Type &ccancel &7to abort");
     }
 
     private void handleDisplayName(Player player, CreationSession session, String input) {
@@ -142,16 +145,16 @@ public class CategoryCreationWizard implements Listener {
         session.displayName = displayName;
         session.currentStep++;
 
-        player.sendMessage("");
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eCategory Creation Wizard §6§l(3/3)  ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Enter the §eDescription §7(optional):");
-        player.sendMessage("§8Example: §7Calm and relaxing ambient sounds");
-        player.sendMessage("§8Leave empty to skip (just type 'skip')");
-        player.sendMessage("");
-        player.sendMessage("§7Type §ccancel §7to abort");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eCategory Creation Wizard &6&l(3/3)  ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Enter the &eDescription &7(optional):");
+        MessageUtil.sendMessage(player, "&8Example: &7Calm and relaxing ambient sounds");
+        MessageUtil.sendMessage(player, "&8Leave empty to skip (just type 'skip')");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Type &ccancel &7to abort");
     }
 
     private void handleDescription(Player player, CreationSession session, String input) {
@@ -159,16 +162,16 @@ public class CategoryCreationWizard implements Listener {
         session.description = description;
 
         // Show summary
-        player.sendMessage("");
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eCategory Summary                ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7ID: §e" + session.categoryId);
-        player.sendMessage("§7Display Name: " + session.displayName);
-        player.sendMessage("§7Description: §f" + (session.description.isEmpty() ? "§8(none)" : session.description));
-        player.sendMessage("");
-        player.sendMessage("§7Type §aconfirm §7to create or §ccancel §7to abort");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eCategory Summary                ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7ID: &e" + session.categoryId);
+        MessageUtil.sendMessage(player, "&7Display Name: " + session.displayName);
+        MessageUtil.sendMessage(player, "&7Description: &f" + (session.description.isEmpty() ? "&8(none)" : session.description));
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Type &aconfirm &7to create or &ccancel &7to abort");
 
         session.currentStep++; // Move to confirmation step
     }

@@ -3,6 +3,7 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.CommandSender;
 
 import java.util.ArrayList;
@@ -40,7 +41,7 @@ public class InfoSubcommand implements SubCommand {
     @Override
     public boolean execute(CommandSender sender, String[] args) {
         if (args.length < 1) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-info"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-info"));
             return true;
         }
 
@@ -48,43 +49,43 @@ public class InfoSubcommand implements SubCommand {
         CustomDisc disc = plugin.getDiscManager().getDisc(discId);
 
         if (disc == null) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("invalid-disc"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("invalid-disc"));
             return true;
         }
 
-        sender.sendMessage(plugin.getLanguageManager().getMessage("info-header"));
-        sender.sendMessage(plugin.getLanguageManager().getMessage("info-id", "value", disc.getId()));
-        sender.sendMessage(plugin.getLanguageManager().getMessage("info-display-name", "value", disc.getDisplayName()));
-        sender.sendMessage(plugin.getLanguageManager().getMessage("info-author", "value", disc.getAuthor()));
-        sender.sendMessage(plugin.getLanguageManager().getMessage("info-type", "value", disc.getDiscType().name()));
-        sender.sendMessage(plugin.getLanguageManager().getMessage("info-custom-model-data", "value", String.valueOf(disc.getCustomModelData())));
-        sender.sendMessage("");
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-header"));
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-id", "value", disc.getId()));
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-display-name", "value", disc.getDisplayName()));
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-author", "value", disc.getAuthor()));
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-type", "value", disc.getDiscType().name()));
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-custom-model-data", "value", String.valueOf(disc.getCustomModelData())));
+        MessageUtil.sendMessage(sender, "");
 
         if (disc.getDescription() != null && !disc.getDescription().isEmpty()) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("info-description", "value", disc.getDescription()));
-            sender.sendMessage("");
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-description", "value", disc.getDescription()));
+            MessageUtil.sendMessage(sender, "");
         }
 
         if (disc.hasCustomSound()) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("info-sound-header"));
-            sender.sendMessage(plugin.getLanguageManager().getMessage("info-sound-key", "value", disc.getSoundKey()));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-sound-header"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-sound-key", "value", disc.getSoundKey()));
 
             java.util.Map<String, String> durationPlaceholders = new java.util.HashMap<>();
             durationPlaceholders.put("seconds", String.valueOf(disc.getDurationSeconds()));
             durationPlaceholders.put("ticks", String.valueOf(disc.getDurationTicks()));
-            sender.sendMessage(plugin.getLanguageManager().getMessage("info-duration", durationPlaceholders));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-duration", durationPlaceholders));
         } else {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("info-sound-vanilla"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-sound-vanilla"));
         }
 
-        sender.sendMessage("");
+        MessageUtil.sendMessage(sender, "");
 
         if (disc.hasFragments()) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("info-fragment-header"));
-            sender.sendMessage(plugin.getLanguageManager().getMessage("info-fragment-required", "amount", String.valueOf(disc.getFragmentCount())));
-            sender.sendMessage(plugin.getLanguageManager().getMessage("info-fragment-enabled"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-fragment-header"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-fragment-required", "amount", String.valueOf(disc.getFragmentCount())));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-fragment-enabled"));
         } else {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("info-fragment-disabled"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("info-fragment-disabled"));
         }
 
         return true;

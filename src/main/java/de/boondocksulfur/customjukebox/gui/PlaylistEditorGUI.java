@@ -5,6 +5,7 @@ import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -17,15 +18,17 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * GUI for editing playlists in-game.
  * Players can add/remove discs from playlists by clicking on them.
+ * Thread-safe implementation using ConcurrentHashMap.
  */
 public class PlaylistEditorGUI implements Listener {
 
     private final CustomJukebox plugin;
-    private final Map<UUID, String> activeEditors = new HashMap<>();
+    private final Map<UUID, String> activeEditors = new ConcurrentHashMap<>();
 
     public PlaylistEditorGUI(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -134,6 +137,14 @@ public class PlaylistEditorGUI implements Listener {
         // Check if player is in playlist editor
         if (!activeEditors.containsKey(player.getUniqueId())) return;
 
+        // Permission check - ensure player still has permission
+        if (!player.hasPermission("customjukebox.playlist")) {
+            player.closeInventory();
+            activeEditors.remove(player.getUniqueId());
+            MessageUtil.sendMessage(player, "&cYou no longer have permission to edit playlists!");
+            return;
+        }
+
         String playlistId = activeEditors.get(player.getUniqueId());
         DiscPlaylist playlist = plugin.getDiscManager().getPlaylist(playlistId);
         if (playlist == null) {
@@ -167,18 +178,18 @@ public class PlaylistEditorGUI implements Listener {
             // Remove from playlist
             boolean success = plugin.getDiscManager().removeDiscFromPlaylist(playlistId, disc.getId());
             if (success) {
-                player.sendMessage("§a✓ Removed §e" + disc.getDisplayName() + " §afrom playlist §e" + playlist.getDisplayName());
+                MessageUtil.sendMessage(player, "&a✓ Removed &e" + disc.getDisplayName() + " &afrom playlist &e" + playlist.getDisplayName());
             } else {
-                player.sendMessage("§c✗ Failed to remove disc from playlist");
+                MessageUtil.sendMessage(player, "&c✗ Failed to remove disc from playlist");
                 plugin.getLogger().warning("Failed to remove disc '" + disc.getId() + "' from playlist '" + playlistId + "'");
             }
         } else {
             // Add to playlist
             boolean success = plugin.getDiscManager().addDiscToPlaylist(playlistId, disc.getId());
             if (success) {
-                player.sendMessage("§a✓ Added §e" + disc.getDisplayName() + " §ato playlist §e" + playlist.getDisplayName());
+                MessageUtil.sendMessage(player, "&a✓ Added &e" + disc.getDisplayName() + " &ato playlist &e" + playlist.getDisplayName());
             } else {
-                player.sendMessage("§c✗ Failed to add disc to playlist");
+                MessageUtil.sendMessage(player, "&c✗ Failed to add disc to playlist");
                 plugin.getLogger().warning("Failed to add disc '" + disc.getId() + "' to playlist '" + playlistId + "'");
             }
         }
@@ -199,7 +210,7 @@ public class PlaylistEditorGUI implements Listener {
         // Remove from active editors
         String playlistId = activeEditors.remove(player.getUniqueId());
         if (playlistId != null) {
-            player.sendMessage("§aPlaylist editor closed.");
+            MessageUtil.sendMessage(player, "&aPlaylist editor closed.");
         }
     }
 

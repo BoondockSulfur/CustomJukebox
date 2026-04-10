@@ -6,6 +6,7 @@ import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.command.CommandSender;
@@ -54,7 +55,7 @@ public class GuiSubcommand implements SubCommand, Listener {
     @Override
     public boolean execute(CommandSender sender, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-only-players"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-only-players"));
             return true;
         }
 

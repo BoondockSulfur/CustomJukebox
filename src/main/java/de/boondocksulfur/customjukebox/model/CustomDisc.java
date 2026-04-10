@@ -29,17 +29,37 @@ public class CustomDisc {
     public CustomDisc(String id, String displayName, String author, List<String> lore,
                      Material discType, int customModelData, String soundKey,
                      int durationTicks, int fragmentCount, String description, String category) {
-        this.id = id;
+        // Validate required fields
+        if (id == null || id.trim().isEmpty()) {
+            throw new IllegalArgumentException("Disc ID cannot be null or empty");
+        }
+        if (displayName == null || displayName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Display name cannot be null or empty");
+        }
+        if (discType == null || !discType.name().startsWith("MUSIC_DISC_")) {
+            throw new IllegalArgumentException("Invalid disc type material: " + discType);
+        }
+        if (customModelData < 0) {
+            throw new IllegalArgumentException("Custom model data cannot be negative");
+        }
+        if (durationTicks < 0) {
+            throw new IllegalArgumentException("Duration cannot be negative");
+        }
+        if (fragmentCount < 0) {
+            throw new IllegalArgumentException("Fragment count cannot be negative");
+        }
+
+        this.id = id.trim();
         this.displayName = displayName;
-        this.author = author;
-        this.lore = lore != null ? lore : new ArrayList<>();
+        this.author = author != null ? author : "Unknown";
+        this.lore = lore != null ? new ArrayList<>(lore) : new ArrayList<>();
         this.discType = discType;
         this.customModelData = customModelData;
-        this.soundKey = soundKey;
+        this.soundKey = soundKey != null ? soundKey : "";
         this.durationTicks = durationTicks;
         this.fragmentCount = fragmentCount;
-        this.description = description;
-        this.category = category;
+        this.description = description != null ? description : "";
+        this.category = category != null ? category : "uncategorized";
     }
 
     public String getId() {

@@ -4,6 +4,7 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscFragment;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -43,13 +44,13 @@ public class FragmentSubcommand implements SubCommand {
     @Override
     public boolean execute(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-fragment"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-fragment"));
             return true;
         }
 
         Player target = Bukkit.getPlayer(args[0]);
         if (target == null) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("player-not-found"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("player-not-found"));
             return true;
         }
 
@@ -58,8 +59,8 @@ public class FragmentSubcommand implements SubCommand {
 
         if (fragment == null) {
             String message = plugin.getLanguageManager().getMessage("no-fragments");
-            sender.sendMessage(message.replace("{disc}", discId));
-            sender.sendMessage(plugin.getLanguageManager().getMessage("fragments-help"));
+            MessageUtil.sendMessage(sender, message.replace("{disc}", discId));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("fragments-help"));
             return true;
         }
 
@@ -69,7 +70,8 @@ public class FragmentSubcommand implements SubCommand {
                 amount = Integer.parseInt(args[2]);
                 amount = Math.max(1, Math.min(64, amount));
             } catch (NumberFormatException e) {
-                sender.sendMessage(plugin.getLanguageManager().getMessage("error-invalid-amount"));
+                MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("error-invalid-amount"));
+                return true;
             }
         }
 
@@ -79,7 +81,7 @@ public class FragmentSubcommand implements SubCommand {
         message = message.replace("{amount}", String.valueOf(amount))
                         .replace("{disc}", discId)
                         .replace("{player}", target.getName());
-        sender.sendMessage(message);
+        MessageUtil.sendMessage(sender, message);
 
         return true;
     }

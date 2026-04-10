@@ -2,6 +2,7 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -46,7 +47,7 @@ public class StopSubcommand implements SubCommand {
         plugin.getPlaybackManager().stopAllPlaybacks();
 
         // Send success message
-        sender.sendMessage(plugin.getLanguageManager().getMessage("playback-all-stopped"));
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playback-all-stopped"));
 
         return true;
     }

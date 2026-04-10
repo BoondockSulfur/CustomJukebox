@@ -5,6 +5,7 @@ import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -18,9 +19,11 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * GUI-based category editor with chat input for text fields.
+ * Thread-safe implementation using ConcurrentHashMap.
  *
  * @author BoondockSulfur
  * @version 1.3.0
@@ -29,8 +32,8 @@ import java.util.*;
 public class CategoryEditorGUI implements Listener {
 
     private final CustomJukebox plugin;
-    private final Map<UUID, EditorContext> activeEditors = new HashMap<>();
-    private final Map<UUID, EditMode> chatInputMode = new HashMap<>();
+    private final Map<UUID, EditorContext> activeEditors = new ConcurrentHashMap<>();
+    private final Map<UUID, EditMode> chatInputMode = new ConcurrentHashMap<>();
 
     public CategoryEditorGUI(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -42,7 +45,7 @@ public class CategoryEditorGUI implements Listener {
     public void openEditor(Player player, String categoryId) {
         DiscCategory category = plugin.getDiscManager().getCategory(categoryId);
         if (category == null) {
-            player.sendMessage("§cCategory not found: " + categoryId);
+            MessageUtil.sendMessage(player, "&cCategory not found: " + categoryId);
             return;
         }
 
@@ -122,34 +125,34 @@ public class CategoryEditorGUI implements Listener {
         switch (slot) {
             case 11: // Edit Display Name
                 player.closeInventory();
-                player.sendMessage("");
-                player.sendMessage("§6§l╔════════════════════════════════════╗");
-                player.sendMessage("§6§l║  §eEdit Display Name               ║");
-                player.sendMessage("§6§l╚════════════════════════════════════╝");
-                player.sendMessage("");
-                player.sendMessage("§7Enter the new §eDisplay Name§7:");
-                player.sendMessage("§8Colors: §7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
-                player.sendMessage("");
-                player.sendMessage("§7Type §ccancel §7to abort");
+                MessageUtil.sendMessage(player, "");
+                MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+                MessageUtil.sendMessage(player, "&6&l║  &eEdit Display Name               ║");
+                MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+                MessageUtil.sendMessage(player, "");
+                MessageUtil.sendMessage(player, "&7Enter the new &eDisplay Name&7:");
+                MessageUtil.sendMessage(player, "&8Colors: &7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
+                MessageUtil.sendMessage(player, "");
+                MessageUtil.sendMessage(player, "&7Type &ccancel &7to abort");
                 chatInputMode.put(player.getUniqueId(), EditMode.DISPLAY_NAME);
                 break;
 
             case 13: // Edit Description
                 player.closeInventory();
-                player.sendMessage("");
-                player.sendMessage("§6§l╔════════════════════════════════════╗");
-                player.sendMessage("§6§l║  §eEdit Description                ║");
-                player.sendMessage("§6§l╚════════════════════════════════════╝");
-                player.sendMessage("");
-                player.sendMessage("§7Enter the new §eDescription§7:");
-                player.sendMessage("§8Type 'none' to remove description");
-                player.sendMessage("");
-                player.sendMessage("§7Type §ccancel §7to abort");
+                MessageUtil.sendMessage(player, "");
+                MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+                MessageUtil.sendMessage(player, "&6&l║  &eEdit Description                ║");
+                MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+                MessageUtil.sendMessage(player, "");
+                MessageUtil.sendMessage(player, "&7Enter the new &eDescription&7:");
+                MessageUtil.sendMessage(player, "&8Type 'none' to remove description");
+                MessageUtil.sendMessage(player, "");
+                MessageUtil.sendMessage(player, "&7Type &ccancel &7to abort");
                 chatInputMode.put(player.getUniqueId(), EditMode.DESCRIPTION);
                 break;
 
             case 15: // Save & Close
-                player.sendMessage("§a§l✓ §aCategory editor closed. All changes saved!");
+                MessageUtil.sendMessage(player, "&a&l✓ &aCategory editor closed. All changes saved!");
                 activeEditors.remove(player.getUniqueId());
                 player.closeInventory();
                 break;
@@ -177,7 +180,7 @@ public class CategoryEditorGUI implements Listener {
         String input = AdventureUtil.toLegacy(event.message());
 
         if (input.equalsIgnoreCase("cancel")) {
-            player.sendMessage("§cEdit cancelled.");
+            MessageUtil.sendMessage(player, "&cEdit cancelled.");
             chatInputMode.remove(player.getUniqueId());
             SchedulerUtil.runPlayerTask(plugin, player, () -> {
                 DiscCategory category = plugin.getDiscManager().getCategory(context.categoryId);
@@ -195,7 +198,7 @@ public class CategoryEditorGUI implements Listener {
     private void handleChatInput(Player player, EditorContext context, EditMode mode, String input) {
         DiscCategory currentCategory = plugin.getDiscManager().getCategory(context.categoryId);
         if (currentCategory == null) {
-            player.sendMessage("§cError: Category no longer exists!");
+            MessageUtil.sendMessage(player, "&cError: Category no longer exists!");
             activeEditors.remove(player.getUniqueId());
             chatInputMode.remove(player.getUniqueId());
             return;
@@ -210,7 +213,7 @@ public class CategoryEditorGUI implements Listener {
                 newDisplayName = AdventureUtil.toLegacy(AdventureUtil.parseComponent(input));
                 success = plugin.getDiscManager().updateCategory(context.categoryId, newDisplayName, newDescription);
                 if (success) {
-                    player.sendMessage("§a§l✓ §aDisplay name updated to: " + newDisplayName);
+                    MessageUtil.sendMessage(player, "&a&l✓ &aDisplay name updated to: " + newDisplayName);
                 }
                 break;
 
@@ -218,13 +221,13 @@ public class CategoryEditorGUI implements Listener {
                 newDescription = input.equalsIgnoreCase("none") ? "" : AdventureUtil.toLegacy(AdventureUtil.parseComponent(input));
                 success = plugin.getDiscManager().updateCategory(context.categoryId, newDisplayName, newDescription);
                 if (success) {
-                    player.sendMessage("§a§l✓ §aDescription updated!");
+                    MessageUtil.sendMessage(player, "&a&l✓ &aDescription updated!");
                 }
                 break;
         }
 
         if (!success) {
-            player.sendMessage("§c§l✗ §cFailed to update category!");
+            MessageUtil.sendMessage(player, "&c&l✗ &cFailed to update category!");
         }
 
         // Reopen GUI

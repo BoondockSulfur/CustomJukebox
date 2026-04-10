@@ -2,6 +2,7 @@ package de.boondocksulfur.customjukebox.commands;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.subcommands.*;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -11,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 /**
@@ -81,15 +83,15 @@ public class CJBCommand implements CommandExecutor, TabCompleter {
         SubCommand subcommand = subcommands.get(name);
 
         if (subcommand == null) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-unknown", "command", name));
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-unknown-help"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-unknown", "command", name));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-unknown-help"));
             return true;
         }
 
         // Check permission
         String permission = subcommand.getPermission();
         if (permission != null && !sender.hasPermission(permission)) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("no-permission"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("no-permission"));
             return true;
         }
 
@@ -97,9 +99,8 @@ public class CJBCommand implements CommandExecutor, TabCompleter {
         try {
             return subcommand.execute(sender, args);
         } catch (Exception e) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("error-command-failed"));
-            plugin.getLogger().severe("Error executing subcommand '" + name + "': " + e.getMessage());
-            e.printStackTrace();
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("error-command-failed"));
+            plugin.getLogger().log(Level.SEVERE, "Error executing subcommand '" + name + "'", e);
             return true;
         }
     }

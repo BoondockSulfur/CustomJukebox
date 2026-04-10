@@ -4,6 +4,7 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -47,7 +48,7 @@ public class PlaylistSubcommand implements SubCommand {
     @Override
     public boolean execute(CommandSender sender, String[] args) {
         if (args.length < 1) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist"));
             return true;
         }
 
@@ -73,24 +74,24 @@ public class PlaylistSubcommand implements SubCommand {
             case "edit":
                 return handleEdit(sender, args);
             default:
-                sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist"));
+                MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist"));
                 return true;
         }
     }
 
     private boolean handleList(CommandSender sender) {
         if (plugin.getDiscManager().getAllPlaylists().isEmpty()) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-none-available"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-none-available"));
             return true;
         }
 
-        sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-list-header"));
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-list-header"));
         for (DiscPlaylist playlist : plugin.getDiscManager().getAllPlaylists()) {
             String message = plugin.getLanguageManager().getMessage("playlist-list-entry")
                 .replace("{id}", playlist.getId())
                 .replace("{name}", playlist.getDisplayName())
                 .replace("{count}", String.valueOf(playlist.getDiscCount()));
-            sender.sendMessage(message);
+            MessageUtil.sendMessage(sender, message);
         }
 
         return true;
@@ -98,7 +99,7 @@ public class PlaylistSubcommand implements SubCommand {
 
     private boolean handleInfo(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist-info"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist-info"));
             return true;
         }
 
@@ -106,25 +107,25 @@ public class PlaylistSubcommand implements SubCommand {
         DiscPlaylist playlist = plugin.getDiscManager().getPlaylist(playlistId);
 
         if (playlist == null) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-not-found")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-not-found")
                 .replace("{playlist}", playlistId));
             return true;
         }
 
-        sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-info-header")
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-info-header")
             .replace("{name}", playlist.getDisplayName()));
-        sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-info-id")
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-info-id")
             .replace("{id}", playlist.getId()));
-        sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-info-description")
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-info-description")
             .replace("{description}", playlist.getDescription()));
-        sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-info-count")
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-info-count")
             .replace("{count}", String.valueOf(playlist.getDiscCount())));
 
-        sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-info-discs-header"));
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-info-discs-header"));
         List<CustomDisc> discs = plugin.getDiscManager().getDiscsFromPlaylist(playlistId);
         for (int i = 0; i < discs.size(); i++) {
             CustomDisc disc = discs.get(i);
-            sender.sendMessage("  " + (i + 1) + ". " + disc.getDisplayName() + " §7- " + disc.getAuthor());
+            MessageUtil.sendMessage(sender, "  " + (i + 1) + ". " + disc.getDisplayName() + " &7- " + disc.getAuthor());
         }
 
         return true;
@@ -132,12 +133,12 @@ public class PlaylistSubcommand implements SubCommand {
 
     private boolean handlePlay(CommandSender sender, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-only-players"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-only-players"));
             return true;
         }
 
         if (args.length < 2) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist-play"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist-play"));
             return true;
         }
 
@@ -146,13 +147,13 @@ public class PlaylistSubcommand implements SubCommand {
         DiscPlaylist playlist = plugin.getDiscManager().getPlaylist(playlistId);
 
         if (playlist == null) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-not-found")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-not-found")
                 .replace("{playlist}", playlistId));
             return true;
         }
 
         if (playlist.isEmpty()) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-empty")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-empty")
                 .replace("{playlist}", playlist.getDisplayName()));
             return true;
         }
@@ -173,14 +174,14 @@ public class PlaylistSubcommand implements SubCommand {
             message += " " + plugin.getLanguageManager().getMessage("playlist-loop-enabled");
         }
 
-        sender.sendMessage(message);
+        MessageUtil.sendMessage(sender, message);
 
         return true;
     }
 
     private boolean handleCreate(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist-create"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist-create"));
             return true;
         }
 
@@ -190,10 +191,10 @@ public class PlaylistSubcommand implements SubCommand {
 
         boolean success = plugin.getDiscManager().createPlaylist(id, displayName, description);
         if (success) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-created")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-created")
                 .replace("{playlist}", id));
         } else {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-already-exists")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-already-exists")
                 .replace("{playlist}", id));
         }
 
@@ -202,7 +203,7 @@ public class PlaylistSubcommand implements SubCommand {
 
     private boolean handleDelete(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist-delete"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist-delete"));
             return true;
         }
 
@@ -210,10 +211,10 @@ public class PlaylistSubcommand implements SubCommand {
         boolean success = plugin.getDiscManager().deletePlaylist(id);
 
         if (success) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-deleted")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-deleted")
                 .replace("{playlist}", id));
         } else {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-not-found")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-not-found")
                 .replace("{playlist}", id));
         }
 
@@ -222,7 +223,7 @@ public class PlaylistSubcommand implements SubCommand {
 
     private boolean handleAdd(CommandSender sender, String[] args) {
         if (args.length < 3) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist-add"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist-add"));
             return true;
         }
 
@@ -232,11 +233,11 @@ public class PlaylistSubcommand implements SubCommand {
         boolean success = plugin.getDiscManager().addDiscToPlaylist(playlistId, discId);
 
         if (success) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-disc-added")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-disc-added")
                 .replace("{disc}", discId)
                 .replace("{playlist}", playlistId));
         } else {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-disc-add-failed")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-disc-add-failed")
                 .replace("{disc}", discId)
                 .replace("{playlist}", playlistId));
         }
@@ -246,7 +247,7 @@ public class PlaylistSubcommand implements SubCommand {
 
     private boolean handleRemove(CommandSender sender, String[] args) {
         if (args.length < 3) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist-remove"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist-remove"));
             return true;
         }
 
@@ -256,11 +257,11 @@ public class PlaylistSubcommand implements SubCommand {
         boolean success = plugin.getDiscManager().removeDiscFromPlaylist(playlistId, discId);
 
         if (success) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-disc-removed")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-disc-removed")
                 .replace("{disc}", discId)
                 .replace("{playlist}", playlistId));
         } else {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-disc-remove-failed")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-disc-remove-failed")
                 .replace("{disc}", discId)
                 .replace("{playlist}", playlistId));
         }
@@ -270,7 +271,7 @@ public class PlaylistSubcommand implements SubCommand {
 
     private boolean handleRename(CommandSender sender, String[] args) {
         if (args.length < 3) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist-rename"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist-rename"));
             return true;
         }
 
@@ -280,11 +281,11 @@ public class PlaylistSubcommand implements SubCommand {
         boolean success = plugin.getDiscManager().renamePlaylist(oldId, newId);
 
         if (success) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-renamed")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-renamed")
                 .replace("{old}", oldId)
                 .replace("{new}", newId));
         } else {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("playlist-rename-failed")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playlist-rename-failed")
                 .replace("{old}", oldId)
                 .replace("{new}", newId));
         }
@@ -294,12 +295,12 @@ public class PlaylistSubcommand implements SubCommand {
 
     private boolean handleEdit(CommandSender sender, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-only-players"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-only-players"));
             return true;
         }
 
         if (args.length < 2) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-playlist-edit"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-playlist-edit"));
             return true;
         }
 
@@ -308,7 +309,7 @@ public class PlaylistSubcommand implements SubCommand {
 
         DiscPlaylist playlist = plugin.getDiscManager().getPlaylist(playlistId);
         if (playlist == null) {
-            player.sendMessage(plugin.getLanguageManager().getMessage("playlist-not-found")
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("playlist-not-found")
                 .replace("{playlist}", playlistId));
             return true;
         }

@@ -2,6 +2,7 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.CommandSender;
 
 import java.util.ArrayList;
@@ -47,7 +48,7 @@ public class UnmuteSubcommand implements SubCommand {
         if (!plugin.getConfigManager().isMuted()) {
             // Not muted
             float currentVolume = plugin.getConfigManager().getVolume();
-            sender.sendMessage(plugin.getLanguageManager().getMessage("unmute-not-muted")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("unmute-not-muted")
                 .replace("{volume}", String.format("%.2f", currentVolume)));
             return true;
         }
@@ -60,7 +61,7 @@ public class UnmuteSubcommand implements SubCommand {
 
         if (!success) {
             // This shouldn't happen, but just in case
-            sender.sendMessage(plugin.getLanguageManager().getMessage("unmute-not-muted")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("unmute-not-muted")
                 .replace("{volume}", String.format("%.2f", plugin.getConfigManager().getVolume())));
             return true;
         }
@@ -87,7 +88,7 @@ public class UnmuteSubcommand implements SubCommand {
             message += " " + plugin.getLanguageManager().getMessage("volume-restarted");
         }
 
-        sender.sendMessage(message);
+        MessageUtil.sendMessage(sender, message);
 
         return true;
     }

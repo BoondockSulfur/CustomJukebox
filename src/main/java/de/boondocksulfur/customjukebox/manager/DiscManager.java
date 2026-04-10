@@ -15,6 +15,7 @@ import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.*;
+import java.util.logging.Level;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
@@ -43,7 +44,10 @@ public class DiscManager {
 
     public DiscManager(CustomJukebox plugin) {
         this.plugin = plugin;
-        this.gson = new GsonBuilder().setPrettyPrinting().create();
+        this.gson = new GsonBuilder()
+            .setPrettyPrinting()
+            .disableHtmlEscaping()  // Prevent & from becoming &amp; in JSON
+            .create();
         this.discsFile = new File(plugin.getDataFolder(), "disc.json");
         this.discs = new HashMap<>();
         this.fragments = new HashMap<>();
@@ -113,8 +117,7 @@ public class DiscManager {
             }
 
         } catch (Exception e) {
-            plugin.getLogger().severe("Failed to load disc.json: " + e.getMessage());
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Failed to load disc.json", e);
 
             // Create default config
             this.discsConfig = new JsonObject();
@@ -249,7 +252,7 @@ public class DiscManager {
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to parse disc '" + id + "': " + e.getMessage());
             if (plugin.getConfigManager().isDebug()) {
-                e.printStackTrace();
+                plugin.getLogger().log(Level.WARNING, "Failed to parse disc '" + id + "'", e);
             }
             return null;
         }
@@ -284,6 +287,8 @@ public class DiscManager {
      * Saves current disc configuration to disc.json.
      */
     private void saveDiscsFile() {
+        File tempFile = new File(discsFile.getParentFile(), discsFile.getName() + ".tmp");
+
         try {
             // Create backup before saving
             createBackup(discsFile);
@@ -291,13 +296,51 @@ public class DiscManager {
             // Ensure version is always set
             discsConfig.addProperty("version", DISC_CONFIG_VERSION);
 
-            try (Writer writer = new FileWriter(discsFile)) {
+            // Write to temporary file first
+            try (Writer writer = new FileWriter(tempFile)) {
                 gson.toJson(discsConfig, writer);
-                plugin.getLogger().info("Saved disc configuration to disc.json");
+                writer.flush(); // Ensure all data is written
             }
+
+            // Verify temp file was created and has content
+            if (!tempFile.exists() || tempFile.length() == 0) {
+                throw new IOException("Temporary file creation failed or file is empty");
+            }
+
+            // Atomic rename: temp file to actual file
+            // On Windows, we need to delete the target first if it exists
+            if (discsFile.exists()) {
+                if (!discsFile.delete()) {
+                    throw new IOException("Could not delete old disc.json for replacement");
+                }
+            }
+
+            if (!tempFile.renameTo(discsFile)) {
+                throw new IOException("Could not rename temporary file to disc.json");
+            }
+
+            plugin.getLogger().info("Saved disc configuration to disc.json");
+
         } catch (IOException e) {
-            plugin.getLogger().severe("Failed to save disc.json: " + e.getMessage());
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Failed to save disc.json", e);
+
+            // Try to restore from backup if save failed
+            File latestBackup = getLatestBackup(discsFile);
+            if (latestBackup != null && latestBackup.exists()) {
+                try {
+                    Files.copy(latestBackup.toPath(), discsFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    plugin.getLogger().warning("Restored disc.json from backup due to save failure");
+                    // Reload the config from the restored file
+                    loadDiscsFile();
+                } catch (IOException restoreException) {
+                    plugin.getLogger().severe("Failed to restore from backup: " + restoreException.getMessage());
+                }
+            }
+
+            // Clean up temp file if it still exists
+            if (tempFile.exists()) {
+                tempFile.delete();
+            }
         }
     }
 
@@ -367,6 +410,35 @@ public class DiscManager {
                 }
             }
         }
+    }
+
+    /**
+     * Gets the latest backup file for the given original file.
+     * @param originalFile The original file (used to find related backups)
+     * @return The latest backup file, or null if no backups exist
+     */
+    private File getLatestBackup(File originalFile) {
+        File parentDir = originalFile.getParentFile();
+        if (parentDir == null || !parentDir.exists()) {
+            return null;
+        }
+
+        // Find all backup files for this config
+        String baseName = originalFile.getName().replace(".json", "");
+        File[] backupFiles = parentDir.listFiles((dir, name) ->
+            name.startsWith(baseName + "_backup_") && name.endsWith(".json")
+        );
+
+        if (backupFiles == null || backupFiles.length == 0) {
+            return null;
+        }
+
+        // Sort by modification time (newest first)
+        Arrays.sort(backupFiles, (f1, f2) ->
+            Long.compare(f2.lastModified(), f1.lastModified())
+        );
+
+        return backupFiles[0]; // Return the most recent backup
     }
 
     public void reload() {

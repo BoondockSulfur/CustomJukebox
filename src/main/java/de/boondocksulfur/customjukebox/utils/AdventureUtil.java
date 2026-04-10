@@ -48,6 +48,7 @@ public class AdventureUtil {
             return Component.empty();
         }
 
+
         // Step 1: Convert custom HEX codes (&#RRGGBB) to MiniMessage format
         text = convertHexToMiniMessage(text);
 

@@ -3,6 +3,7 @@ package de.boondocksulfur.customjukebox.gui;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.InputValidator;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import org.bukkit.Bukkit;
@@ -11,14 +12,16 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Step-by-step chat wizard for creating new discs.
+ * Thread-safe implementation using ConcurrentHashMap.
  */
 public class DiscCreationWizard implements Listener {
 
     private final CustomJukebox plugin;
-    private final Map<UUID, CreationSession> activeSessions = new HashMap<>();
+    private final Map<UUID, CreationSession> activeSessions = new ConcurrentHashMap<>();
 
     public DiscCreationWizard(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -31,15 +34,15 @@ public class DiscCreationWizard implements Listener {
         CreationSession session = new CreationSession();
         activeSessions.put(player.getUniqueId(), session);
 
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eDisc Creation Wizard §6§l(1/7)     ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Enter the §eDisc ID §7(internal identifier):");
-        player.sendMessage("§8Example: §7my_custom_disc");
-        player.sendMessage("§8Format: §7lowercase, no spaces, use _ or -");
-        player.sendMessage("");
-        player.sendMessage("§7Type §ccancel §7to abort");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eDisc Creation Wizard &6&l(1/7)     ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Enter the &eDisc ID &7(internal identifier):");
+        MessageUtil.sendMessage(player, "&8Example: &7my_custom_disc");
+        MessageUtil.sendMessage(player, "&8Format: &7lowercase, no spaces, use _ or -");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Type &ccancel &7to abort");
     }
 
     @EventHandler(priority = org.bukkit.event.EventPriority.LOWEST)
@@ -55,7 +58,7 @@ public class DiscCreationWizard implements Listener {
         String input = AdventureUtil.toLegacy(event.message());
 
         if (input.equalsIgnoreCase("cancel")) {
-            player.sendMessage("§cDisc creation cancelled.");
+            MessageUtil.sendMessage(player, "&cDisc creation cancelled.");
             activeSessions.remove(player.getUniqueId());
             return;
         }
@@ -94,115 +97,115 @@ public class DiscCreationWizard implements Listener {
         // Validate ID format and length
         if (!InputValidator.isValidDiscId(input)) {
             if (input.length() > InputValidator.MAX_DISC_ID_LENGTH) {
-                player.sendMessage(InputValidator.getLengthErrorMessage("Disc ID", InputValidator.MAX_DISC_ID_LENGTH));
+                MessageUtil.sendMessage(player, InputValidator.getLengthErrorMessage("Disc ID", InputValidator.MAX_DISC_ID_LENGTH));
             } else {
-                player.sendMessage("§cInvalid ID! Use only lowercase letters, numbers, _ and -");
+                MessageUtil.sendMessage(player, "&cInvalid ID! Use only lowercase letters, numbers, _ and -");
             }
-            player.sendMessage("§7Please try again:");
+            MessageUtil.sendMessage(player, "&7Please try again:");
             return;
         }
 
         if (plugin.getDiscManager().getDisc(input) != null) {
-            player.sendMessage("§cA disc with ID §e" + input + " §calready exists!");
-            player.sendMessage("§7Please choose a different ID:");
+            MessageUtil.sendMessage(player, "&cA disc with ID &e" + input + " &calready exists!");
+            MessageUtil.sendMessage(player, "&7Please choose a different ID:");
             return;
         }
 
         session.discId = input;
         session.currentStep++;
 
-        player.sendMessage("§a✓ Disc ID: §e" + input);
-        player.sendMessage("");
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eDisc Creation Wizard §6§l(2/7)     ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Enter the §eDisplay Name §7(shown to players):");
-        player.sendMessage("§8Example: §7&6Epic Journey");
-        player.sendMessage("§8Colors: §7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
-        player.sendMessage("§8Formats: §7&l, &o, &n, &m");
+        MessageUtil.sendMessage(player, "&a✓ Disc ID: &e" + input);
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eDisc Creation Wizard &6&l(2/7)     ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Enter the &eDisplay Name &7(shown to players):");
+        MessageUtil.sendMessage(player, "&8Example: &7&6Epic Journey");
+        MessageUtil.sendMessage(player, "&8Colors: &7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
+        MessageUtil.sendMessage(player, "&8Formats: &7&l, &o, &n, &m");
     }
 
     private void handleDisplayName(Player player, CreationSession session, String input) {
         // Validate length
         if (!InputValidator.isValidLength(input, InputValidator.MAX_DISPLAY_NAME_LENGTH)) {
-            player.sendMessage(InputValidator.getLengthErrorMessage("Display Name", InputValidator.MAX_DISPLAY_NAME_LENGTH));
-            player.sendMessage("§7Please try again:");
+            MessageUtil.sendMessage(player, InputValidator.getLengthErrorMessage("Display Name", InputValidator.MAX_DISPLAY_NAME_LENGTH));
+            MessageUtil.sendMessage(player, "&7Please try again:");
             return;
         }
 
         session.displayName = input;
         session.currentStep++;
 
-        player.sendMessage("§a✓ Display Name: §r" + input.replace('&', '§'));
-        player.sendMessage("");
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eDisc Creation Wizard §6§l(3/7)     ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Enter the §eAuthor §7(composer/creator):");
-        player.sendMessage("§8Example: §7C418 or &#FF5555Custom Artist");
-        player.sendMessage("§8Supports colors & gradients just like Display Name");
+        MessageUtil.sendMessage(player, "&a✓ Display Name: &r" + input);
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eDisc Creation Wizard &6&l(3/7)     ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Enter the &eAuthor &7(composer/creator):");
+        MessageUtil.sendMessage(player, "&8Example: &7C418 or &#FF5555Custom Artist");
+        MessageUtil.sendMessage(player, "&8Supports colors & gradients just like Display Name");
     }
 
     private void handleAuthor(Player player, CreationSession session, String input) {
         // Validate length
         if (!InputValidator.isValidLength(input, InputValidator.MAX_AUTHOR_LENGTH)) {
-            player.sendMessage(InputValidator.getLengthErrorMessage("Author", InputValidator.MAX_AUTHOR_LENGTH));
-            player.sendMessage("§7Please try again:");
+            MessageUtil.sendMessage(player, InputValidator.getLengthErrorMessage("Author", InputValidator.MAX_AUTHOR_LENGTH));
+            MessageUtil.sendMessage(player, "&7Please try again:");
             return;
         }
 
         session.author = input;
         session.currentStep++;
 
-        player.sendMessage("§a✓ Author: §f" + input);
-        player.sendMessage("");
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eDisc Creation Wizard §6§l(4/7)     ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Enter the §eSound Key §7(from resource pack):");
-        player.sendMessage("§8Format: §7namespace:sound_name");
-        player.sendMessage("§8Example: §7minecraft:music_disc." + session.discId);
-        player.sendMessage("§8Or: §7customjukebox:" + session.discId);
+        MessageUtil.sendMessage(player, "&a✓ Author: &f" + input);
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eDisc Creation Wizard &6&l(4/7)     ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Enter the &eSound Key &7(from resource pack):");
+        MessageUtil.sendMessage(player, "&8Format: &7namespace:sound_name");
+        MessageUtil.sendMessage(player, "&8Example: &7minecraft:music_disc." + session.discId);
+        MessageUtil.sendMessage(player, "&8Or: &7customjukebox:" + session.discId);
     }
 
     private void handleSoundKey(Player player, CreationSession session, String input) {
         // Validate format and length
         if (!InputValidator.isValidSoundKey(input)) {
             if (input.length() > InputValidator.MAX_SOUND_KEY_LENGTH) {
-                player.sendMessage(InputValidator.getLengthErrorMessage("Sound Key", InputValidator.MAX_SOUND_KEY_LENGTH));
+                MessageUtil.sendMessage(player, InputValidator.getLengthErrorMessage("Sound Key", InputValidator.MAX_SOUND_KEY_LENGTH));
             } else if (!input.contains(":")) {
-                player.sendMessage("§cInvalid format! Sound key must contain ':'");
-                player.sendMessage("§7Example: §eminecraft:music_disc.my_disc");
+                MessageUtil.sendMessage(player, "&cInvalid format! Sound key must contain ':'");
+                MessageUtil.sendMessage(player, "&7Example: &eminecraft:music_disc.my_disc");
             } else {
-                player.sendMessage("§cInvalid format! Use only lowercase letters, numbers, _ . and -");
+                MessageUtil.sendMessage(player, "&cInvalid format! Use only lowercase letters, numbers, _ . and -");
             }
-            player.sendMessage("§7Please try again:");
+            MessageUtil.sendMessage(player, "&7Please try again:");
             return;
         }
 
         session.soundKey = input;
         session.currentStep++;
 
-        player.sendMessage("§a✓ Sound Key: §b" + input);
-        player.sendMessage("");
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eDisc Creation Wizard §6§l(5/7)     ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Enter the §eDuration §7in seconds:");
-        player.sendMessage("§8Example: §7180 §8(for 3 minutes)");
-        player.sendMessage("§8Common: §760s, 120s, 180s, 240s, 300s");
+        MessageUtil.sendMessage(player, "&a✓ Sound Key: &b" + input);
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eDisc Creation Wizard &6&l(5/7)     ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Enter the &eDuration &7in seconds:");
+        MessageUtil.sendMessage(player, "&8Example: &7180 &8(for 3 minutes)");
+        MessageUtil.sendMessage(player, "&8Common: &760s, 120s, 180s, 240s, 300s");
     }
 
     private void handleDuration(Player player, CreationSession session, String input) {
         try {
             int seconds = Integer.parseInt(input);
             if (seconds <= 0) {
-                player.sendMessage("§cDuration must be greater than 0!");
-                player.sendMessage("§7Please enter a valid number:");
+                MessageUtil.sendMessage(player, "&cDuration must be greater than 0!");
+                MessageUtil.sendMessage(player, "&7Please enter a valid number:");
                 return;
             }
 
@@ -211,60 +214,60 @@ public class DiscCreationWizard implements Listener {
 
             int minutes = seconds / 60;
             int secs = seconds % 60;
-            player.sendMessage("§a✓ Duration: §e" + seconds + "s §7(" + minutes + "m " + secs + "s)");
-            player.sendMessage("");
-            player.sendMessage("§6§l╔════════════════════════════════════╗");
-            player.sendMessage("§6§l║  §eDisc Creation Wizard §6§l(6/7)     ║");
-            player.sendMessage("§6§l╚════════════════════════════════════╝");
-            player.sendMessage("");
-            player.sendMessage("§7Enter a §eCategory §7(optional):");
-            player.sendMessage("§8Example: §7ambient, epic, nature");
-            player.sendMessage("§8Or type: §7none §8(for no category)");
+            MessageUtil.sendMessage(player, "&a✓ Duration: &e" + seconds + "s &7(" + minutes + "m " + secs + "s)");
+            MessageUtil.sendMessage(player, "");
+            MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+            MessageUtil.sendMessage(player, "&6&l║  &eDisc Creation Wizard &6&l(6/7)     ║");
+            MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+            MessageUtil.sendMessage(player, "");
+            MessageUtil.sendMessage(player, "&7Enter a &eCategory &7(optional):");
+            MessageUtil.sendMessage(player, "&8Example: &7ambient, epic, nature");
+            MessageUtil.sendMessage(player, "&8Or type: &7none &8(for no category)");
 
             // Show existing categories
             if (!plugin.getDiscManager().getAllCategories().isEmpty()) {
-                player.sendMessage("");
-                player.sendMessage("§7Existing categories:");
+                MessageUtil.sendMessage(player, "");
+                MessageUtil.sendMessage(player, "&7Existing categories:");
                 plugin.getDiscManager().getAllCategories().forEach(cat ->
-                    player.sendMessage("§8  - §e" + cat.getId() + " §7(" + cat.getDisplayName() + ")"));
+                    MessageUtil.sendMessage(player, "&8  - &e" + cat.getId() + " &7(" + cat.getDisplayName() + ")"));
             }
 
         } catch (NumberFormatException e) {
-            player.sendMessage("§cInvalid number! Please enter duration in seconds:");
+            MessageUtil.sendMessage(player, "&cInvalid number! Please enter duration in seconds:");
         }
     }
 
     private void handleCategory(Player player, CreationSession session, String input) {
         if (input.equalsIgnoreCase("none")) {
             session.category = null;
-            player.sendMessage("§a✓ Category: §8None");
+            MessageUtil.sendMessage(player, "&a✓ Category: &8None");
         } else {
             session.category = input.toLowerCase();
-            player.sendMessage("§a✓ Category: §e" + input);
+            MessageUtil.sendMessage(player, "&a✓ Category: &e" + input);
         }
 
         session.currentStep++;
 
-        player.sendMessage("");
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║  §eDisc Creation Wizard §6§l(7/7)     ║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Enter §eCustom Model Data §7(for texture):");
-        player.sendMessage("§8Example: §71, 2, 3, ...");
-        player.sendMessage("§8Default: §71 §8(uses default disc texture)");
-        player.sendMessage("");
-        player.sendMessage("§7Common values:");
-        player.sendMessage("§8  1 §7- Default disc");
-        player.sendMessage("§8  2-10 §7- Custom textures (if configured)");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║  &eDisc Creation Wizard &6&l(7/7)     ║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Enter &eCustom Model Data &7(for texture):");
+        MessageUtil.sendMessage(player, "&8Example: &71, 2, 3, ...");
+        MessageUtil.sendMessage(player, "&8Default: &71 &8(uses default disc texture)");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Common values:");
+        MessageUtil.sendMessage(player, "&8  1 &7- Default disc");
+        MessageUtil.sendMessage(player, "&8  2-10 &7- Custom textures (if configured)");
     }
 
     private void handleCustomModelData(Player player, CreationSession session, String input) {
         try {
             int modelData = Integer.parseInt(input);
             if (modelData < 1) {
-                player.sendMessage("§cCustom Model Data must be at least 1!");
-                player.sendMessage("§7Please enter a valid number:");
+                MessageUtil.sendMessage(player, "&cCustom Model Data must be at least 1!");
+                MessageUtil.sendMessage(player, "&7Please enter a valid number:");
                 return;
             }
 
@@ -274,25 +277,25 @@ public class DiscCreationWizard implements Listener {
             finishWizard(player, session);
 
         } catch (NumberFormatException e) {
-            player.sendMessage("§cInvalid number! Please enter Custom Model Data:");
+            MessageUtil.sendMessage(player, "&cInvalid number! Please enter Custom Model Data:");
         }
     }
 
     private void finishWizard(Player player, CreationSession session) {
-        player.sendMessage("");
-        player.sendMessage("§6§l╔════════════════════════════════════╗");
-        player.sendMessage("§6§l║     §aCreating Disc...            §6§l║");
-        player.sendMessage("§6§l╚════════════════════════════════════╝");
-        player.sendMessage("");
-        player.sendMessage("§7Summary:");
-        player.sendMessage("§8  ID: §e" + session.discId);
-        player.sendMessage("§8  Name: §r" + session.displayName.replace('&', '§'));
-        player.sendMessage("§8  Author: §f" + session.author);
-        player.sendMessage("§8  Sound: §b" + session.soundKey);
-        player.sendMessage("§8  Duration: §e" + session.durationSeconds + "s");
-        player.sendMessage("§8  Category: §e" + (session.category != null ? session.category : "None"));
-        player.sendMessage("§8  Model Data: §e" + session.customModelData);
-        player.sendMessage("");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
+        MessageUtil.sendMessage(player, "&6&l║     &aCreating Disc...            &6&l║");
+        MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
+        MessageUtil.sendMessage(player, "");
+        MessageUtil.sendMessage(player, "&7Summary:");
+        MessageUtil.sendMessage(player, "&8  ID: &e" + session.discId);
+        MessageUtil.sendMessage(player, "&8  Name: &r" + session.displayName);
+        MessageUtil.sendMessage(player, "&8  Author: &f" + session.author);
+        MessageUtil.sendMessage(player, "&8  Sound: &b" + session.soundKey);
+        MessageUtil.sendMessage(player, "&8  Duration: &e" + session.durationSeconds + "s");
+        MessageUtil.sendMessage(player, "&8  Category: &e" + (session.category != null ? session.category : "None"));
+        MessageUtil.sendMessage(player, "&8  Model Data: &e" + session.customModelData);
+        MessageUtil.sendMessage(player, "");
 
         // Create disc
         boolean success = plugin.getDiscManager().createDisc(
@@ -307,15 +310,15 @@ public class DiscCreationWizard implements Listener {
         );
 
         if (success) {
-            player.sendMessage("§a§l✓ Disc created successfully!");
-            player.sendMessage("§7The disc has been saved to §edisc.json");
-            player.sendMessage("");
-            player.sendMessage("§7You can now:");
-            player.sendMessage("§8  - §e/cjb give " + player.getName() + " " + session.discId + " §7- Get the disc");
-            player.sendMessage("§8  - §e/cjb gui §7- Open GUI and edit via Admin Panel");
+            MessageUtil.sendMessage(player, "&a&l✓ Disc created successfully!");
+            MessageUtil.sendMessage(player, "&7The disc has been saved to &edisc.json");
+            MessageUtil.sendMessage(player, "");
+            MessageUtil.sendMessage(player, "&7You can now:");
+            MessageUtil.sendMessage(player, "&8  - &e/cjb give " + player.getName() + " " + session.discId + " &7- Get the disc");
+            MessageUtil.sendMessage(player, "&8  - &e/cjb gui &7- Open GUI and edit via Admin Panel");
         } else {
-            player.sendMessage("§c§l✗ Failed to create disc!");
-            player.sendMessage("§7Please check console for errors.");
+            MessageUtil.sendMessage(player, "&c&l✗ Failed to create disc!");
+            MessageUtil.sendMessage(player, "&7Please check console for errors.");
         }
 
         activeSessions.remove(player.getUniqueId());

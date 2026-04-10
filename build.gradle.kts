@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "de.boondocksulfur"
-version = "2.1.0"
+version = "2.1.3"
 
 repositories {
     mavenCentral()

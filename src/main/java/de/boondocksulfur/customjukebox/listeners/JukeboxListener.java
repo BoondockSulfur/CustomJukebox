@@ -4,6 +4,7 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.title.Title;
@@ -19,10 +20,14 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.Location;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Handles jukebox interaction and custom disc playback.
@@ -35,9 +40,15 @@ public class JukeboxListener implements Listener {
 
     private final CustomJukebox plugin;
 
-    // Constants for jukebox timing
+    // Track recent disc changes to prevent race conditions
+    private final Map<Location, Long> recentDiscChanges = new HashMap<>();
+    private static final long DISC_CHANGE_COOLDOWN_MS = 500; // 500ms cooldown between disc changes
+
+    // Constants for jukebox timing - improved with more attempts
     private static final int VANILLA_SOUND_STOP_INITIAL_DELAY = 1; // Ticks
     private static final int VANILLA_SOUND_STOP_SECOND_DELAY = 5; // Ticks
+    private static final int VANILLA_SOUND_STOP_THIRD_DELAY = 10; // Ticks
+    private static final int VANILLA_SOUND_STOP_FOURTH_DELAY = 20; // Ticks (1 second)
 
     public JukeboxListener(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -61,7 +72,7 @@ public class JukeboxListener implements Listener {
 
         // Check integrations (WorldGuard, GriefPrevention)
         if (!plugin.getIntegrationManager().canUseJukebox(player, block.getLocation())) {
-            player.sendMessage(plugin.getLanguageManager().getMessage("no-permission"));
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("no-permission"));
             event.setCancelled(true);
             return;
         }
@@ -100,10 +111,35 @@ public class JukeboxListener implements Listener {
             return; // Vanilla will eject the current disc
         }
 
+        // Check for recent disc changes to prevent race conditions
+        Location loc = block.getLocation();
+        Long lastChange = recentDiscChanges.get(loc);
+        if (lastChange != null && (System.currentTimeMillis() - lastChange) < DISC_CHANGE_COOLDOWN_MS) {
+            // Too soon after last disc change - ignore to prevent race conditions
+            if (plugin.getConfigManager().isDebug()) {
+                plugin.getLogger().info("Disc change too rapid - ignoring to prevent race condition");
+            }
+            return;
+        }
+
         // Check if this is a custom disc
         CustomDisc disc = plugin.getDiscManager().getDiscFromItem(item);
         if (disc == null) {
             return; // Not a custom disc, let vanilla handle it
+        }
+
+        // Mark this location as having a recent disc change
+        recentDiscChanges.put(loc, System.currentTimeMillis());
+
+        // Clean up old entries after 2 seconds
+        SchedulerUtil.runLater(plugin, loc, () -> {
+            recentDiscChanges.remove(loc);
+        }, 40L); // 2 seconds
+
+        // Stop any existing playback IMMEDIATELY to prevent overlap
+        // This is important for quick disc switches
+        if (plugin.getPlaybackManager().isPlaying(block.getLocation())) {
+            plugin.getPlaybackManager().stopPlayback(block.getLocation());
         }
 
         // Let vanilla insert the disc first, then play custom sound
@@ -113,8 +149,21 @@ public class JukeboxListener implements Listener {
             Jukebox updatedJukebox = (Jukebox) block.getState();
             ItemStack insertedDisc = updatedJukebox.getRecord();
             if (insertedDisc != null && insertedDisc.getType() != Material.AIR) {
-                // Disc was inserted successfully
-                startCustomPlayback(block, disc);
+                // IMPORTANT: Re-identify the disc from the actual inserted item
+                // This prevents playing the wrong disc if items were switched quickly
+                CustomDisc actualDisc = plugin.getDiscManager().getDiscFromItem(insertedDisc);
+                if (actualDisc != null) {
+                    // Double-check: Stop any playback that might have started in the meantime
+                    if (plugin.getPlaybackManager().isPlaying(block.getLocation())) {
+                        plugin.getPlaybackManager().stopPlayback(block.getLocation());
+                    }
+                    startCustomPlayback(block, actualDisc);
+                } else {
+                    // The inserted disc is not a custom disc anymore, let vanilla handle it
+                    if (plugin.getConfigManager().isDebug()) {
+                        plugin.getLogger().warning("Disc switch detected - inserted disc is not custom");
+                    }
+                }
             }
         }, 1L);
     }
@@ -123,9 +172,19 @@ public class JukeboxListener implements Listener {
      * Handles ejecting a disc from the jukebox.
      */
     private void handleDiscEjection(Block block, Jukebox jukebox) {
+        Location loc = block.getLocation();
+
+        // Mark this location as having a recent disc change
+        recentDiscChanges.put(loc, System.currentTimeMillis());
+
+        // Clean up old entries after 2 seconds
+        SchedulerUtil.runLater(plugin, loc, () -> {
+            recentDiscChanges.remove(loc);
+        }, 40L); // 2 seconds
+
         // Stop custom playback if active
-        if (plugin.getPlaybackManager().isPlaying(block.getLocation())) {
-            plugin.getPlaybackManager().stopPlayback(block.getLocation());
+        if (plugin.getPlaybackManager().isPlaying(loc)) {
+            plugin.getPlaybackManager().stopPlayback(loc);
         }
         // Vanilla will handle the disc ejection
     }
@@ -139,7 +198,29 @@ public class JukeboxListener implements Listener {
             return;
         }
 
-        // Stop vanilla sound twice to ensure it's stopped (vanilla sound can start with slight delay)
+        // Final verification: Check if the jukebox still contains the expected disc
+        // This prevents race conditions where the disc might have been swapped
+        Jukebox jukebox = (Jukebox) block.getState();
+        ItemStack currentRecord = jukebox.getRecord();
+        if (currentRecord == null || currentRecord.getType() == Material.AIR) {
+            // Jukebox is empty - disc was already ejected
+            if (plugin.getConfigManager().isDebug()) {
+                plugin.getLogger().warning("Disc ejected before playback could start");
+            }
+            return;
+        }
+
+        CustomDisc currentDisc = plugin.getDiscManager().getDiscFromItem(currentRecord);
+        if (currentDisc == null || !currentDisc.getId().equals(disc.getId())) {
+            // Different disc or no custom disc - abort
+            if (plugin.getConfigManager().isDebug()) {
+                plugin.getLogger().warning("Disc mismatch detected - expected: " + disc.getId() +
+                    ", found: " + (currentDisc != null ? currentDisc.getId() : "vanilla"));
+            }
+            return;
+        }
+
+        // Stop vanilla sound multiple times to ensure it's stopped (vanilla sound can start with variable delay)
         // First stop - immediately after insertion
         stopVanillaSound(block, disc);
 
@@ -147,6 +228,16 @@ public class JukeboxListener implements Listener {
         SchedulerUtil.runLater(plugin, block.getLocation(), () -> {
             stopVanillaSound(block, disc);
         }, VANILLA_SOUND_STOP_SECOND_DELAY);
+
+        // Third stop - for slower servers or laggy conditions
+        SchedulerUtil.runLater(plugin, block.getLocation(), () -> {
+            stopVanillaSound(block, disc);
+        }, VANILLA_SOUND_STOP_THIRD_DELAY);
+
+        // Fourth stop - final attempt for very slow servers
+        SchedulerUtil.runLater(plugin, block.getLocation(), () -> {
+            stopVanillaSound(block, disc);
+        }, VANILLA_SOUND_STOP_FOURTH_DELAY);
 
         // Show custom disc title to nearby players (replaces vanilla display)
         showCustomDiscTitle(block, disc);
@@ -204,6 +295,7 @@ public class JukeboxListener implements Listener {
     /**
      * Stops the vanilla disc sound for all nearby players.
      * This prevents double-playback (vanilla + custom sound).
+     * Optimized to only check players within hearing radius.
      * @param block Jukebox block
      * @param disc CustomDisc that was inserted
      */
@@ -214,10 +306,31 @@ public class JukeboxListener implements Listener {
         String vanillaSound = getVanillaSoundName(disc.getDiscType());
         if (vanillaSound == null) return;
 
-        // Stop vanilla sound for all nearby players
+        // Get hearing radius and calculate squared distance for performance
         int hearingRadius = plugin.getConfigManager().getJukeboxHearingRadius();
+        double hearingRadiusSquared = hearingRadius * hearingRadius;
+
+        // Get location once to avoid multiple calls
+        org.bukkit.Location blockLocation = block.getLocation();
+
+        // Only check players within a reasonable chunk distance
+        int chunkRadius = (hearingRadius >> 4) + 1; // Convert blocks to chunks (divide by 16)
+        int centerChunkX = blockLocation.getBlockX() >> 4;
+        int centerChunkZ = blockLocation.getBlockZ() >> 4;
+
+        // Stop vanilla sound for nearby players (optimized)
         for (Player player : block.getWorld().getPlayers()) {
-            if (player.getLocation().distance(block.getLocation()) <= hearingRadius) {
+            // Quick chunk distance check first
+            int playerChunkX = player.getLocation().getBlockX() >> 4;
+            int playerChunkZ = player.getLocation().getBlockZ() >> 4;
+
+            if (Math.abs(playerChunkX - centerChunkX) > chunkRadius ||
+                Math.abs(playerChunkZ - centerChunkZ) > chunkRadius) {
+                continue; // Player is too far away, skip distance calculation
+            }
+
+            // Use squared distance to avoid expensive sqrt calculation
+            if (player.getLocation().distanceSquared(blockLocation) <= hearingRadiusSquared) {
                 player.stopSound(vanillaSound, org.bukkit.SoundCategory.RECORDS);
 
                 if (plugin.getConfigManager().isDebug()) {
@@ -260,13 +373,13 @@ public class JukeboxListener implements Listener {
 
     private void openJukeboxGui(Player player, Block jukeboxBlock) {
         if (!player.hasPermission("customjukebox.gui")) {
-            player.sendMessage(plugin.getLanguageManager().getMessage("no-permission"));
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("no-permission"));
             return;
         }
 
         // Check integrations (WorldGuard, GriefPrevention)
         if (!plugin.getIntegrationManager().canUseJukebox(player, jukeboxBlock.getLocation())) {
-            player.sendMessage(plugin.getLanguageManager().getMessage("no-permission"));
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("no-permission"));
             return;
         }
 
@@ -334,7 +447,7 @@ public class JukeboxListener implements Listener {
 
         // Validate jukebox location
         if (jukeboxLoc == null || jukeboxLoc.getBlock().getType() != Material.JUKEBOX) {
-            player.sendMessage(plugin.getLanguageManager().getMessage("gui-jukebox-invalid"));
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("gui-jukebox-invalid"));
             player.removeMetadata("jukebox_location", plugin);
             player.closeInventory();
             return;
@@ -345,7 +458,7 @@ public class JukeboxListener implements Listener {
         // Check if jukebox is empty
         ItemStack record = jukebox.getRecord();
         if (record != null && record.getType() != Material.AIR) {
-            player.sendMessage(plugin.getLanguageManager().getMessage("gui-jukebox-occupied"));
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("gui-jukebox-occupied"));
             player.closeInventory();
             player.removeMetadata("jukebox_location", plugin);
             return;
@@ -365,7 +478,7 @@ public class JukeboxListener implements Listener {
             }
 
             if (discInInventory == null) {
-                player.sendMessage(plugin.getLanguageManager().getMessage("gui-no-permission-disc"));
+                MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("gui-no-permission-disc"));
                 player.closeInventory();
                 player.removeMetadata("jukebox_location", plugin);
                 return;
@@ -385,7 +498,7 @@ public class JukeboxListener implements Listener {
         // Send success message
         String message = plugin.getLanguageManager().getMessage("gui-disc-inserted");
         message = message.replace("{disc}", disc.getDisplayName());
-        player.sendMessage(message);
+        MessageUtil.sendMessage(player, message);
 
         // Close inventory and cleanup metadata
         player.closeInventory();
@@ -399,7 +512,7 @@ public class JukeboxListener implements Listener {
     private void handleCommandGuiClick(Player player, CustomDisc disc) {
         // Check if player has permission to get discs
         if (!player.hasPermission("customjukebox.give")) {
-            player.sendMessage(plugin.getLanguageManager().getMessage("gui-no-permission-disc"));
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("gui-no-permission-disc"));
             player.closeInventory();
             return;
         }
@@ -409,7 +522,7 @@ public class JukeboxListener implements Listener {
 
         String message = plugin.getLanguageManager().getMessage("disc-received");
         message = message.replace("{disc}", disc.getDisplayName());
-        player.sendMessage(message);
+        MessageUtil.sendMessage(player, message);
 
         player.closeInventory();
     }
@@ -437,5 +550,23 @@ public class JukeboxListener implements Listener {
             player.removeMetadata("jukebox_location", plugin);
         }
     }
+
+    /**
+     * Handles player quit event to prevent memory leaks.
+     * Removes the player from all active playback listeners.
+     */
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+
+        // Remove player from all active playbacks to prevent memory leak
+        plugin.getPlaybackManager().removePlayerFromAllPlaybacks(player);
+
+        // Clean up any GUI metadata
+        if (player.hasMetadata("jukebox_location")) {
+            player.removeMetadata("jukebox_location", plugin);
+        }
+    }
+
 }
 

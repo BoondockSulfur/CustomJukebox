@@ -2,6 +2,7 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.CommandSender;
 
 import java.util.ArrayList;
@@ -53,7 +54,7 @@ public class VolumeSubcommand implements SubCommand {
         // If no args, show current volume
         if (args.length == 0) {
             float currentVolume = plugin.getConfigManager().getVolume();
-            sender.sendMessage(plugin.getLanguageManager().getMessage("volume-current")
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("volume-current")
                 .replace("{volume}", String.format("%.2f", currentVolume)));
             return true;
         }
@@ -69,8 +70,8 @@ public class VolumeSubcommand implements SubCommand {
             // Try parsing as preset
             volume = parseVolumePreset(args[0].toLowerCase());
             if (volume == -1) {
-                sender.sendMessage(plugin.getLanguageManager().getMessage("volume-invalid"));
-                sender.sendMessage("§7Available presets: §esilent§7, §equiet§7, §enormal§7, §eloud§7, §emax");
+                MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("volume-invalid"));
+                MessageUtil.sendMessage(sender, "&7Available presets: &esilent&7, &equiet&7, &enormal&7, &eloud&7, &emax");
                 return true;
             }
             presetName = args[0].toLowerCase();
@@ -78,7 +79,7 @@ public class VolumeSubcommand implements SubCommand {
 
         // Validate range (0.0 to 4.0)
         if (volume < 0.0f || volume > 4.0f) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("volume-invalid-range"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("volume-invalid-range"));
             return true;
         }
 
@@ -114,7 +115,7 @@ public class VolumeSubcommand implements SubCommand {
             message += " " + plugin.getLanguageManager().getMessage("volume-restarted");
         }
 
-        sender.sendMessage(message);
+        MessageUtil.sendMessage(sender, message);
 
         return true;
     }

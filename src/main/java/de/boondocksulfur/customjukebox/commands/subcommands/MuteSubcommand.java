@@ -2,6 +2,7 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.CommandSender;
 
 import java.util.ArrayList;
@@ -48,7 +49,7 @@ public class MuteSubcommand implements SubCommand {
 
         if (!success) {
             // Already muted
-            sender.sendMessage(plugin.getLanguageManager().getMessage("mute-already-muted"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("mute-already-muted"));
             return true;
         }
 
@@ -73,11 +74,11 @@ public class MuteSubcommand implements SubCommand {
             message += " " + plugin.getLanguageManager().getMessage("volume-restarted");
         }
 
-        sender.sendMessage(message);
+        MessageUtil.sendMessage(sender, message);
 
         // Warn about vanilla discs
-        sender.sendMessage("§7§oNote: Vanilla music discs cannot be muted (Minecraft limitation)");
-        sender.sendMessage("§7§oOnly custom discs are affected by mute/volume settings");
+        MessageUtil.sendMessage(sender, "&7&oNote: Vanilla music discs cannot be muted (Minecraft limitation)");
+        MessageUtil.sendMessage(sender, "&7&oOnly custom discs are affected by mute/volume settings");
 
         return true;
     }

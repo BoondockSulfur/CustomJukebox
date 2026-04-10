@@ -14,6 +14,8 @@ import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
+import java.util.logging.Level;
+
 /**
  * Manages third-party plugin integrations.
  * Supports:
@@ -127,7 +129,7 @@ public class IntegrationManager {
         } catch (Exception e) {
             plugin.getLogger().warning("WorldGuard integration error: " + e.getMessage());
             if (plugin.getConfigManager().isDebug()) {
-                e.printStackTrace();
+                plugin.getLogger().log(Level.WARNING, "WorldGuard integration error", e);
             }
             return true; // Fail-safe: allow usage
         }
@@ -169,7 +171,7 @@ public class IntegrationManager {
         } catch (Exception e) {
             plugin.getLogger().warning("GriefPrevention integration error: " + e.getMessage());
             if (plugin.getConfigManager().isDebug()) {
-                e.printStackTrace();
+                plugin.getLogger().log(Level.WARNING, "GriefPrevention integration error", e);
             }
             return true; // Fail-safe: allow usage
         }

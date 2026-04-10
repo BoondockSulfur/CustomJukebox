@@ -8,6 +8,7 @@ import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import org.bukkit.ChatColor;
 
 import java.io.*;
+import java.util.logging.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -36,7 +37,10 @@ public class ConfigManager {
 
     public ConfigManager(CustomJukebox plugin) {
         this.plugin = plugin;
-        this.gson = new GsonBuilder().setPrettyPrinting().create();
+        this.gson = new GsonBuilder()
+            .setPrettyPrinting()
+            .disableHtmlEscaping()  // Prevent & from becoming &amp; in JSON
+            .create();
         this.configFile = new File(plugin.getDataFolder(), "config.json");
 
         loadConfig();
@@ -94,8 +98,7 @@ public class ConfigManager {
             }
 
         } catch (Exception e) {
-            plugin.getLogger().severe("Failed to load config.json: " + e.getMessage());
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Failed to load config.json", e);
 
             // Create default config
             this.config = new JsonObject();
@@ -124,8 +127,7 @@ public class ConfigManager {
                 gson.toJson(config, writer);
             }
         } catch (IOException e) {
-            plugin.getLogger().severe("Failed to save config.json: " + e.getMessage());
-            e.printStackTrace();
+            plugin.getLogger().log(Level.SEVERE, "Failed to save config.json", e);
         }
     }
 

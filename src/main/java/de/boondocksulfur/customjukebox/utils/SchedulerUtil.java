@@ -63,9 +63,20 @@ public class SchedulerUtil {
                     .invoke(regionScheduler, plugin, location, (java.util.function.Consumer<Object>) scheduledTask -> task.run(), delayTicks);
                 return null; // Folia doesn't return BukkitTask
             } catch (Exception e) {
-                plugin.getLogger().warning("Folia scheduler failed, falling back to Bukkit scheduler: " + e.getMessage());
-                // Fallback to global scheduler if reflection fails
-                return Bukkit.getScheduler().runTaskLater(plugin, task, delayTicks);
+                // Critical error - Folia API might have changed
+                plugin.getLogger().severe("CRITICAL: Folia scheduler API has changed! Please update CustomJukebox plugin.");
+                plugin.getLogger().severe("Error details: " + e.getMessage());
+                plugin.getLogger().severe("The plugin may not function correctly on this Folia version.");
+
+                // Still attempt to run the task, but this is not ideal for Folia's threading model
+                // This is a last-resort fallback that should rarely occur
+                try {
+                    // Try to at least execute the task, even if not region-specific
+                    plugin.getServer().getScheduler().runTaskLater(plugin, task, delayTicks);
+                } catch (Exception fallbackException) {
+                    plugin.getLogger().severe("Even fallback scheduler failed: " + fallbackException.getMessage());
+                }
+                return null;
             }
         } else {
             // Paper/Spigot: Use global scheduler
@@ -91,9 +102,11 @@ public class SchedulerUtil {
                 regionScheduler.getClass().getMethod("run", Plugin.class, Location.class, java.util.function.Consumer.class)
                     .invoke(regionScheduler, plugin, location, (java.util.function.Consumer<Object>) scheduledTask -> task.run());
             } catch (Exception e) {
-                plugin.getLogger().warning("Folia scheduler failed: " + e.getMessage());
-                // Fallback to global scheduler if reflection fails
-                Bukkit.getScheduler().runTask(plugin, task);
+                plugin.getLogger().severe("CRITICAL: Folia scheduler API has changed! Error: " + e.getMessage());
+                // Last resort fallback
+                try {
+                    Bukkit.getScheduler().runTask(plugin, task);
+                } catch (Exception ignored) {}
             }
         } else {
             // Paper/Spigot: Use global scheduler

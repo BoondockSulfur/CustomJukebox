@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.2] - 2026-03-29
+
+### Fixed
+- **Message formatting**: Fixed color codes showing as garbled text on Paper 1.21+ servers
+- **Critical: Wrong disc playing after quick switch**: Added comprehensive fix for race conditions
+  - Implemented 500ms cooldown between disc changes to prevent race conditions
+  - Added triple-verification system to ensure correct disc identification
+  - Re-identify disc after insertion to catch quick swaps
+  - Stop any existing playback immediately on new disc insertion
+  - Added final verification before playback starts
+
+- **Critical: Playlist skip race condition**: Fixed tracks being skipped in playlists
+  - Added `peekNext()` method for safe preview without index advancement
+  - Eliminated race conditions in playlist progression logic
+  - Ensured thread-safe playlist queue operations
+
+- **Critical: Data loss on disc save**: Implemented atomic file operations
+  - Write to temporary file first, then atomic rename
+  - Automatic backup restoration on save failure
+  - Added `getLatestBackup()` recovery mechanism
+  - Prevents disc.json corruption on write failures
+
+- **Memory leak with player UUIDs**: Fixed players remaining in listener lists
+  - Added `PlayerQuitEvent` handler to clean up UUIDs
+  - Implemented `removePlayerFromAllPlaybacks()` method
+  - Prevents memory accumulation over time
+
+- **HTML entities in display texts**: Fixed &amp; showing instead of color codes
+  - Added `unescapeHtmlEntities()` method in DiscManager
+  - Properly decodes HTML entities when loading from JSON
+  - Backup decoder in JukeboxListener for compatibility
+
+- **Vanilla sound stop mechanism**: Improved reliability
+  - Increased attempts from 2 to 4 (at 1, 5, 10, 20 ticks)
+  - Optimized performance with squared distance calculations
+  - Added chunk-based pre-filtering for efficiency
+
+- **Folia support issues**: Fixed fallback problems
+  - Better error messages instead of silent fallback
+  - Improved API change detection
+  - Warns admins about compatibility issues
+
+- **Mute state not persistent**: Now saves across reloads
+  - Added `loadMuteState()` and `saveMuteState()` methods
+  - Mute state stored in config.json
+  - Survives plugin reloads and server restarts
+
+### Security
+- **Thread-safety improvements**: Migrated to ConcurrentHashMap
+  - All GUI classes now use thread-safe collections
+  - Prevents ConcurrentModificationException
+  - Better multi-threaded performance
+
+- **Permission checks in GUIs**: Added runtime permission validation
+  - GUI handlers now verify permissions on every click
+  - Prevents exploitation when permissions change during use
+  - Immediate closure if permissions are revoked
+
+### Performance
+- **Location cloning optimization**: Reduced unnecessary object creation
+  - Added `getJukeboxLocationClone()` for explicit cloning
+  - Internal methods use reference for performance
+  - Documented when cloning is necessary
+
+- **Input validation**: Added comprehensive parameter checking
+  - CustomDisc constructor validates all inputs
+  - Throws IllegalArgumentException for invalid values
+  - Prevents creation of invalid disc objects
+
+### Technical
+- Fixed missing imports in JukeboxListener
+- Updated all GUI classes for thread-safety
+- Enhanced debug logging for troubleshooting
+- Improved error recovery mechanisms
+
+---
+
 ## [2.1.0] - 2026-02-18
 
 ### Added

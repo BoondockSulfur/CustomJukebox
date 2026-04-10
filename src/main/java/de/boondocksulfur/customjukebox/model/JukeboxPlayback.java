@@ -30,6 +30,7 @@ public class JukeboxPlayback {
     }
 
     public JukeboxPlayback(Location jukeboxLocation, CustomDisc disc, boolean loop, PlaybackRange range) {
+        // Clone once on construction to ensure immutability
         this.jukeboxLocation = jukeboxLocation.clone();
         this.disc = disc;
         this.startTime = System.currentTimeMillis();
@@ -39,7 +40,23 @@ public class JukeboxPlayback {
         this.range = range != null ? range : new PlaybackRange(PlaybackRange.RangeType.NORMAL);
     }
 
+    /**
+     * Gets the jukebox location.
+     * WARNING: This returns the internal location reference for performance.
+     * DO NOT modify the returned location!
+     * @return The jukebox location (do not modify!)
+     */
     public Location getJukeboxLocation() {
+        // Return reference for performance - caller must not modify!
+        return jukeboxLocation;
+    }
+
+    /**
+     * Gets a safe clone of the jukebox location.
+     * Use this if you need to modify the location.
+     * @return A cloned location that is safe to modify
+     */
+    public Location getJukeboxLocationClone() {
         return jukeboxLocation.clone();
     }
 
@@ -61,6 +78,10 @@ public class JukeboxPlayback {
 
     public void removeListener(Player player) {
         listeners.remove(player.getUniqueId());
+    }
+
+    public void removeListener(UUID playerUUID) {
+        listeners.remove(playerUUID);
     }
 
     public boolean hasListener(Player player) {

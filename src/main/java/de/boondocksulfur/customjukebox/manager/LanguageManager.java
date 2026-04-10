@@ -1,8 +1,7 @@
 package de.boondocksulfur.customjukebox.manager;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
-import de.boondocksulfur.customjukebox.utils.AdventureUtil;
-import org.bukkit.ChatColor;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 
@@ -245,6 +244,8 @@ public class LanguageManager {
      * @return Message with Minecraft color codes
      */
     private String colorize(String message) {
-        return AdventureUtil.toLegacy(AdventureUtil.parseComponent(message));
+        // Simply return the message with & codes intact
+        // MessageUtil.sendMessage() will handle the proper conversion
+        return MessageUtil.formatMessage(message);
     }
 }

@@ -7,6 +7,7 @@ import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -20,15 +21,17 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Main admin GUI for managing discs, playlists, and categories.
+ * Thread-safe implementation using ConcurrentHashMap.
  */
 public class AdminGUI implements Listener {
 
     private final CustomJukebox plugin;
-    private final Map<UUID, GUIContext> activeGUIs = new HashMap<>();
-    private final Map<UUID, String> chatInputMode = new HashMap<>();
+    private final Map<UUID, GUIContext> activeGUIs = new ConcurrentHashMap<>();
+    private final Map<UUID, String> chatInputMode = new ConcurrentHashMap<>();
 
     public AdminGUI(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -199,6 +202,14 @@ public class AdminGUI implements Listener {
         GUIContext context = activeGUIs.get(player.getUniqueId());
         if (context == null) return;
 
+        // Permission check - ensure player still has admin permission
+        if (!player.hasPermission("customjukebox.admin")) {
+            player.closeInventory();
+            activeGUIs.remove(player.getUniqueId());
+            MessageUtil.sendMessage(player, "&cYou no longer have permission to use the admin panel!");
+            return;
+        }
+
         // Only cancel if clicking in the top inventory (the GUI)
         if (event.getClickedInventory() != null && event.getClickedInventory().equals(event.getView().getTopInventory())) {
             event.setCancelled(true);
@@ -245,7 +256,7 @@ public class AdminGUI implements Listener {
             case 22: // Exit
                 player.closeInventory();
                 activeGUIs.remove(player.getUniqueId());
-                player.sendMessage("§aAdmin Panel closed");
+                MessageUtil.sendMessage(player, "&aAdmin Panel closed");
                 break;
         }
     }
@@ -282,9 +293,9 @@ public class AdminGUI implements Listener {
         if (slot == 4) {
             // Create new playlist - prompt for ID via chat
             player.closeInventory();
-            player.sendMessage("§7Enter new §ePlaylist ID §7in chat:");
-            player.sendMessage("§8Example: epic_music");
-            player.sendMessage("§8Type §ccancel §8to abort");
+            MessageUtil.sendMessage(player, "&7Enter new &ePlaylist ID &7in chat:");
+            MessageUtil.sendMessage(player, "&8Example: epic_music");
+            MessageUtil.sendMessage(player, "&8Type &ccancel &8to abort");
             chatInputMode.put(player.getUniqueId(), "createPlaylist");
             return;
         }
@@ -310,7 +321,7 @@ public class AdminGUI implements Listener {
                 // Delete playlist
                 boolean success = plugin.getDiscManager().deletePlaylist(playlistId);
                 if (success) {
-                    player.sendMessage(plugin.getLanguageManager().getMessage("playlist-deleted")
+                    MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("playlist-deleted")
                         .replace("{playlist}", playlistId));
                     openPlaylistManagement(player); // Refresh
                 }
@@ -347,10 +358,10 @@ public class AdminGUI implements Listener {
                 // Delete category
                 boolean success = plugin.getDiscManager().deleteCategory(categoryId);
                 if (success) {
-                    player.sendMessage("§aCategory deleted: §e" + categoryId);
+                    MessageUtil.sendMessage(player, "&aCategory deleted: &e" + categoryId);
                     openCategoryManagement(player); // Refresh
                 } else {
-                    player.sendMessage("§cFailed to delete category!");
+                    MessageUtil.sendMessage(player, "&cFailed to delete category!");
                 }
             } else {
                 // Edit category
@@ -405,7 +416,7 @@ public class AdminGUI implements Listener {
         String input = AdventureUtil.toLegacy(event.message());
 
         if (input.equalsIgnoreCase("cancel")) {
-            player.sendMessage("§cInput cancelled");
+            MessageUtil.sendMessage(player, "&cInput cancelled");
             chatInputMode.remove(player.getUniqueId());
 
             // Reopen playlist management
@@ -424,10 +435,10 @@ public class AdminGUI implements Listener {
             boolean success = plugin.getDiscManager().createPlaylist(playlistId, input, "Created via GUI");
 
             if (success) {
-                player.sendMessage("§a✓ Playlist created: §e" + input);
-                player.sendMessage("§7Use the GUI to add discs to the playlist");
+                MessageUtil.sendMessage(player, "&a✓ Playlist created: &e" + input);
+                MessageUtil.sendMessage(player, "&7Use the GUI to add discs to the playlist");
             } else {
-                player.sendMessage("§cPlaylist ID already exists!");
+                MessageUtil.sendMessage(player, "&cPlaylist ID already exists!");
             }
 
             chatInputMode.remove(player.getUniqueId());

@@ -4,6 +4,7 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.PlaybackRange;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -48,12 +49,12 @@ public class PlaySubcommand implements SubCommand {
     public boolean execute(CommandSender sender, String[] args) {
         // Only players can use this command
         if (!(sender instanceof Player)) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-only-players"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-only-players"));
             return true;
         }
 
         if (args.length < 1) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-play"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-play"));
             return true;
         }
 
@@ -62,7 +63,7 @@ public class PlaySubcommand implements SubCommand {
         CustomDisc disc = plugin.getDiscManager().getDisc(discId);
 
         if (disc == null) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("invalid-disc"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("invalid-disc"));
             return true;
         }
 
@@ -94,9 +95,9 @@ public class PlaySubcommand implements SubCommand {
                 }
             } else {
                 // Invalid parameter - not loop and not a valid range
-                sender.sendMessage(plugin.getLanguageManager().getMessage("playback-invalid-parameter")
+                MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("playback-invalid-parameter")
                     .replace("{parameter}", arg));
-                sender.sendMessage("§7Valid parameters: §eloop§7, §eglobal§7, §eworld§7, §e<radius>");
+                MessageUtil.sendMessage(sender, "&7Valid parameters: &eloop&7, &eglobal&7, &eworld&7, &e<radius>");
                 return true;
             }
         }
@@ -117,7 +118,7 @@ public class PlaySubcommand implements SubCommand {
         message += " " + plugin.getLanguageManager().getMessage("playback-range-info")
             .replace("{range}", range.toString());
 
-        sender.sendMessage(message);
+        MessageUtil.sendMessage(sender, message);
 
         return true;
     }

@@ -3,6 +3,7 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
+import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -42,13 +43,13 @@ public class GiveSubcommand implements SubCommand {
     @Override
     public boolean execute(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("command-usage-give"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("command-usage-give"));
             return true;
         }
 
         Player target = Bukkit.getPlayer(args[0]);
         if (target == null) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("player-not-found"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("player-not-found"));
             return true;
         }
 
@@ -56,7 +57,7 @@ public class GiveSubcommand implements SubCommand {
         CustomDisc disc = plugin.getDiscManager().getDisc(discId);
 
         if (disc == null) {
-            sender.sendMessage(plugin.getLanguageManager().getMessage("invalid-disc"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("invalid-disc"));
             return true;
         }
 
@@ -66,7 +67,8 @@ public class GiveSubcommand implements SubCommand {
                 amount = Integer.parseInt(args[2]);
                 amount = Math.max(1, Math.min(64, amount));
             } catch (NumberFormatException e) {
-                sender.sendMessage(plugin.getLanguageManager().getMessage("error-invalid-amount"));
+                MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("error-invalid-amount"));
+                return true;
             }
         }
 
@@ -74,7 +76,7 @@ public class GiveSubcommand implements SubCommand {
             target.getInventory().addItem(disc.createItemStack());
         }
 
-        sender.sendMessage(plugin.getLanguageManager().getMessage("disc-given")
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("disc-given")
             .replace("{disc}", disc.getDisplayName())
             .replace("{player}", target.getName()));
 

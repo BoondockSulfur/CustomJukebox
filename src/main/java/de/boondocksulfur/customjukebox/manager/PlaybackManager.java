@@ -66,16 +66,37 @@ public class PlaybackManager {
         CustomDisc next() {
             if (discs.isEmpty()) return null;
 
+            // Check if we can advance before incrementing
+            if (!hasNext()) {
+                return null;
+            }
+
             currentIndex++;
             if (currentIndex >= discs.size()) {
                 if (loop) {
                     currentIndex = 0;
                 } else {
+                    // This should not happen due to hasNext() check
+                    currentIndex = discs.size() - 1;
                     return null;
                 }
             }
 
             return discs.get(currentIndex);
+        }
+
+        CustomDisc peekNext() {
+            if (!hasNext()) return null;
+
+            int nextIndex = currentIndex + 1;
+            if (nextIndex >= discs.size()) {
+                if (loop) {
+                    return discs.get(0);
+                } else {
+                    return null;
+                }
+            }
+            return discs.get(nextIndex);
         }
 
         int getSize() {
@@ -233,6 +254,30 @@ public class PlaybackManager {
     }
 
     /**
+     * Removes a player from all active playbacks.
+     * Called when a player quits the server to prevent memory leaks.
+     * @param player The player who is leaving
+     */
+    public void removePlayerFromAllPlaybacks(Player player) {
+        if (player == null) {
+            return;
+        }
+
+        UUID playerUUID = player.getUniqueId();
+
+        // Remove player from all active playbacks
+        for (JukeboxPlayback playback : activePlaybacks.values()) {
+            if (playback != null) {
+                playback.removeListener(playerUUID);
+            }
+        }
+
+        if (plugin.getConfigManager().isDebug()) {
+            plugin.getLogger().info("Removed " + player.getName() + " from all active playbacks");
+        }
+    }
+
+    /**
      * Stops all active playbacks (used on plugin disable).
      */
     public void stopAllPlaybacks() {
@@ -371,12 +416,12 @@ public class PlaybackManager {
 
             // Notify player about the issue
             if (player != null && player.isOnline()) {
-                player.sendMessage("§c§l[CustomJukebox] Sound playback failed!");
-                player.sendMessage("§7Sound: §e" + soundKey);
-                player.sendMessage("§7This might be because:");
-                player.sendMessage("§7  • You haven't loaded the resource pack");
-                player.sendMessage("§7  • The sound file is missing");
-                player.sendMessage("§7Try: §e/reload §7or rejoin the server");
+                de.boondocksulfur.customjukebox.utils.MessageUtil.sendMessage(player, "&c&l[CustomJukebox] Sound playback failed!");
+                de.boondocksulfur.customjukebox.utils.MessageUtil.sendMessage(player, "&7Sound: &e" + soundKey);
+                de.boondocksulfur.customjukebox.utils.MessageUtil.sendMessage(player, "&7This might be because:");
+                de.boondocksulfur.customjukebox.utils.MessageUtil.sendMessage(player, "&7  - You haven't loaded the resource pack");
+                de.boondocksulfur.customjukebox.utils.MessageUtil.sendMessage(player, "&7  - The sound file is missing");
+                de.boondocksulfur.customjukebox.utils.MessageUtil.sendMessage(player, "&7Try: &e/reload &7or rejoin the server");
             }
         }
     }
@@ -580,6 +625,7 @@ public class PlaybackManager {
             plugin.getLogger().info("[Playlist] Queue keys: " + playlistQueues.keySet());
         }
 
+        // Synchronize access to prevent race conditions
         PlaylistQueue queue = playlistQueues.get(locationKey);
 
         if (queue == null) {
@@ -591,9 +637,12 @@ public class PlaybackManager {
 
         plugin.getLogger().info("[Playlist] Progressing at " + locationKey);
 
+        // Peek at next disc without advancing the index yet
         if (queue.hasNext()) {
-            CustomDisc nextDisc = queue.next();
+            CustomDisc nextDisc = queue.peekNext();
             if (nextDisc != null) {
+                // Only advance the index after successful peek
+                queue.next(); // Now safe to advance
                 // Play next disc in queue using the queue's stored range
                 plugin.getLogger().info("[Playlist] Playing next: " + nextDisc.getId() +
                     " (" + (queue.getCurrentIndex() + 1) + "/" + queue.getSize() + ")");
