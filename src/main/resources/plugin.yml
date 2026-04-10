@@ -1,7 +1,7 @@
 name: CustomJukebox
 version: ${version}
 main: de.boondocksulfur.customjukebox.CustomJukebox
-api-version: '1.21'
+api-version: '26.1'
 author: BoondockSulfur
 description: Custom Jukebox Plugin with extended features
 folia-supported: true

@@ -28,6 +28,8 @@ import org.bukkit.inventory.ItemStack;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Handles jukebox interaction and custom disc playback.
@@ -39,6 +41,9 @@ import java.util.Map;
 public class JukeboxListener implements Listener {
 
     private final CustomJukebox plugin;
+
+    // Track jukebox location for GUI selections (replaces deprecated FixedMetadataValue)
+    private final Map<UUID, Location> playerJukeboxLocations = new ConcurrentHashMap<>();
 
     // Track recent disc changes to prevent race conditions
     private final Map<Location, Long> recentDiscChanges = new HashMap<>();
@@ -399,8 +404,7 @@ public class JukeboxListener implements Listener {
         player.openInventory(gui);
 
         // Store jukebox location for later use (when player clicks a disc)
-        player.setMetadata("jukebox_location", new org.bukkit.metadata.FixedMetadataValue(plugin,
-            jukeboxBlock.getLocation()));
+        playerJukeboxLocations.put(player.getUniqueId(), jukeboxBlock.getLocation());
     }
 
     @EventHandler
@@ -426,7 +430,7 @@ public class JukeboxListener implements Listener {
         if (disc == null) return;
 
         // Check if GUI was opened from jukebox (has metadata) or from command (no metadata)
-        boolean hasJukeboxLocation = player.hasMetadata("jukebox_location");
+        boolean hasJukeboxLocation = playerJukeboxLocations.containsKey(player.getUniqueId());
 
         if (hasJukeboxLocation) {
             // GUI opened from jukebox - insert disc into jukebox
@@ -442,13 +446,13 @@ public class JukeboxListener implements Listener {
      * Inserts the disc into the jukebox.
      */
     private void handleJukeboxGuiClick(Player player, CustomDisc disc) {
-        // Get jukebox location from metadata
-        org.bukkit.Location jukeboxLoc = (org.bukkit.Location) player.getMetadata("jukebox_location").get(0).value();
+        // Get jukebox location from stored map
+        org.bukkit.Location jukeboxLoc = playerJukeboxLocations.get(player.getUniqueId());
 
         // Validate jukebox location
         if (jukeboxLoc == null || jukeboxLoc.getBlock().getType() != Material.JUKEBOX) {
             MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("gui-jukebox-invalid"));
-            player.removeMetadata("jukebox_location", plugin);
+            playerJukeboxLocations.remove(player.getUniqueId());
             player.closeInventory();
             return;
         }
@@ -460,7 +464,7 @@ public class JukeboxListener implements Listener {
         if (record != null && record.getType() != Material.AIR) {
             MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("gui-jukebox-occupied"));
             player.closeInventory();
-            player.removeMetadata("jukebox_location", plugin);
+            playerJukeboxLocations.remove(player.getUniqueId());
             return;
         }
 
@@ -480,7 +484,7 @@ public class JukeboxListener implements Listener {
             if (discInInventory == null) {
                 MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("gui-no-permission-disc"));
                 player.closeInventory();
-                player.removeMetadata("jukebox_location", plugin);
+                playerJukeboxLocations.remove(player.getUniqueId());
                 return;
             }
 
@@ -502,7 +506,7 @@ public class JukeboxListener implements Listener {
 
         // Close inventory and cleanup metadata
         player.closeInventory();
-        player.removeMetadata("jukebox_location", plugin);
+        playerJukeboxLocations.remove(player.getUniqueId());
     }
 
     /**
@@ -546,8 +550,8 @@ public class JukeboxListener implements Listener {
         if (!title.equals(guiTitle)) return;
 
         // Remove metadata if player closes GUI without selecting a disc
-        if (player.hasMetadata("jukebox_location")) {
-            player.removeMetadata("jukebox_location", plugin);
+        if (playerJukeboxLocations.containsKey(player.getUniqueId())) {
+            playerJukeboxLocations.remove(player.getUniqueId());
         }
     }
 
@@ -563,8 +567,8 @@ public class JukeboxListener implements Listener {
         plugin.getPlaybackManager().removePlayerFromAllPlaybacks(player);
 
         // Clean up any GUI metadata
-        if (player.hasMetadata("jukebox_location")) {
-            player.removeMetadata("jukebox_location", plugin);
+        if (playerJukeboxLocations.containsKey(player.getUniqueId())) {
+            playerJukeboxLocations.remove(player.getUniqueId());
         }
     }
 

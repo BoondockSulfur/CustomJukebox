@@ -6,6 +6,7 @@ import org.bukkit.Material;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.components.CustomModelDataComponent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -141,7 +142,9 @@ public class CustomDisc {
             }
             meta.lore(loreComponents);
 
-            meta.setCustomModelData(customModelData);
+            CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
+            cmd.setFloats(List.of((float) customModelData));
+            meta.setCustomModelDataComponent(cmd);
 
             // Hide vanilla item information
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
@@ -169,6 +172,8 @@ public class CustomDisc {
             return false;
         }
 
-        return meta.hasCustomModelData() && meta.getCustomModelData() == customModelData;
+        if (!meta.hasCustomModelDataComponent()) return false;
+        List<Float> floats = meta.getCustomModelDataComponent().getFloats();
+        return !floats.isEmpty() && floats.get(0) == (float) customModelData;
     }
 }
