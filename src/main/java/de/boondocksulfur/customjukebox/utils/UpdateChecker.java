@@ -58,7 +58,8 @@ public class UpdateChecker {
                     return;
                 }
 
-                reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                java.io.InputStream inputStream = connection.getInputStream();
+                reader = new BufferedReader(new InputStreamReader(inputStream));
                 StringBuilder response = new StringBuilder();
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -80,7 +81,7 @@ public class UpdateChecker {
 
                 // Get download URL
                 JsonArray files = latestVersionObj.getAsJsonArray("files");
-                if (files.size() > 0) {
+                if (files != null && files.size() > 0) {
                     JsonObject primaryFile = files.get(0).getAsJsonObject();
                     downloadUrl = primaryFile.get("url").getAsString();
                 }

@@ -156,18 +156,19 @@ public class JukeboxPlayback {
      * @return Location key (world:x:y:z)
      */
     public String getLocationKey() {
-        return jukeboxLocation.getWorld().getName() + ":" +
-               jukeboxLocation.getBlockX() + ":" +
-               jukeboxLocation.getBlockY() + ":" +
-               jukeboxLocation.getBlockZ();
+        return getLocationKey(jukeboxLocation);
     }
 
     /**
      * Creates a location key from a location.
      * @param loc Location
      * @return Location key
+     * @throws IllegalArgumentException if location or its world is null
      */
     public static String getLocationKey(Location loc) {
+        if (loc == null || loc.getWorld() == null) {
+            throw new IllegalArgumentException("Location and its world must not be null");
+        }
         return loc.getWorld().getName() + ":" +
                loc.getBlockX() + ":" +
                loc.getBlockY() + ":" +

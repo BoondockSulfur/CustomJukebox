@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.5] - 2026-04-18
+
+### Fixed
+- **Permission system completely overhauled**: Players were incorrectly blocked in areas without explicit WorldGuard flags
+  - `customjukebox.use` is now actually checked (previously only defined but never used)
+  - WorldGuard now only checks for explicit `use deny` - Areas without the flag allow jukeboxes
+  - Specific error messages instead of generic “no-permission” (Region/Claim/Permission separated)
+  - New permission `customjukebox.bypass.protection` to bypass WorldGuard/GriefPrevention (default: OP)
+
+- **Various bug fixes**: Fixed several potential crashes and race conditions
+  - Thread safety for the playlist queue (synchronized methods)
+  - Safer file saving with `Files.move()` instead of delete+rename (prevents data loss on Windows)
+  - Null checks for metadata access, WorldGuard locations, and Adventure API colors
+  - ArrayIndexOutOfBounds protection in the Disc Editor for corrupt states
+  - UpdateChecker: JSON null safety and resource leak fix
+
+- **Minor improvements**:
+  - Mute state is now persisted in config.json (survives server restart)
+  - Location-based HashMap key replaced with string key (more reliable cooldown)
+  - Tab completion now shows subcommands even with empty input
+  - Category validation in the Creation Wizard (warning for non-existent categories)
+  - More efficient item distribution (a stack instead of a loop)
+  - Plugin tasks are now properly terminated on onDisable
+
+### Changed
+- **Paper API 1.21.11**: Plugin now compiles and runs against Paper 1.21.11
+- **Resource Pack updated**: `pack_format` set to 75 (1.21.11), sound namespace corrected
+- **Default Configs**: `version` field added to config.json and disc.json
+- **README**: Detailed permissions documentation with tables and descriptions
+
+### Added
+- Permission `customjukebox.bypass.protection` (default: OP, included in `customjukebox.admin`)
+- New error messages in all 4 languages: `no-permission-jukebox`, `no-permission-region`, `no-permission-claim`
+
+---
+
+## [2.1.4] - 2026-04-14
+
+### Fixed
+- **False update notification**: Fixed plugin incorrectly showing "Update to 2.1.3 available" despite already running 2.1.3
+  - Gradle's `processResources` did not track the project version as an explicit task input
+  - Added `inputs.property("version", project.version)` to ensure version changes always trigger resource re-processing
+
+---
+
+## [2.1.3] - 2026-04-10
+
+### Fixed
+- **Message formatting**: All chat messages now use MessageUtil with Adventure API
+  - Replaced all raw `sender.sendMessage(String)` / `player.sendMessage(String)` calls
+  - Replaced hardcoded section sign color codes with ampersand codes
+  - Affects all commands, listeners, and GUI components
+
+- **Error handling**: Replaced all `printStackTrace()` calls with proper `Logger.log()` usage
+  - CJBCommand, ConfigManager, DiscManager, IntegrationManager
+
+- **Give/Fragment command bug**: Fixed commands giving items even with invalid amount input
+  - Added missing `return` after NumberFormatException in GiveSubcommand and FragmentSubcommand
+
+- **Vanilla sound overlap**: Fixed volume fluctuations during custom disc playback
+  - Added `jukebox.stopPlaying()` to stop server-side vanilla playback
+  - Prevents Jukebox block entity from periodically re-triggering vanilla sound
+  - Applied to both manual disc insertion and GUI-based insertion
+
+---
+
 ## [2.1.2] - 2026-03-29
 
 ### Fixed

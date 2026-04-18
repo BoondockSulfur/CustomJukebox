@@ -610,7 +610,12 @@ public class DiscEditorGUIv2 implements Listener {
 
         if (input.equalsIgnoreCase("cancel")) {
             MessageUtil.sendMessage(player, "&cInput cancelled");
-            String discId = mode.split(":")[1];
+            String[] cancelParts = mode.split(":");
+            if (cancelParts.length < 2) {
+                chatInputMode.remove(player.getUniqueId());
+                return;
+            }
+            String discId = cancelParts[1];
             chatInputMode.remove(player.getUniqueId());
 
             // Reopen editor without closing
@@ -628,6 +633,11 @@ public class DiscEditorGUIv2 implements Listener {
 
     private void handleChatInput(Player player, String mode, String input) {
         String[] parts = mode.split(":");
+        if (parts.length < 2) {
+            MessageUtil.sendMessage(player, "&cInvalid editor state!");
+            chatInputMode.remove(player.getUniqueId());
+            return;
+        }
         String field = parts[0];
         String discId = parts[1];
 

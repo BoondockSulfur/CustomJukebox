@@ -31,9 +31,28 @@ public class ConfigManager {
     private final File configFile;
     private JsonObject config;
 
-    // Mute state tracking
+    // Mute state tracking (persisted in config.json)
     private boolean isMuted = false;
     private float volumeBeforeMute = 1.0f;
+
+    private void loadMuteState() {
+        isMuted = getBoolean("playback.muted", false);
+        volumeBeforeMute = (float) getDouble("playback.volume-before-mute", 4.0);
+    }
+
+    private void saveMuteState() {
+        try {
+            if (!config.has("playback")) {
+                config.add("playback", new JsonObject());
+            }
+            JsonObject playback = config.getAsJsonObject("playback");
+            playback.addProperty("muted", isMuted);
+            playback.addProperty("volume-before-mute", volumeBeforeMute);
+            save();
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to save mute state: " + e.getMessage());
+        }
+    }
 
     public ConfigManager(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -44,6 +63,7 @@ public class ConfigManager {
         this.configFile = new File(plugin.getDataFolder(), "config.json");
 
         loadConfig();
+        loadMuteState();
     }
 
     /**
@@ -293,6 +313,7 @@ public class ConfigManager {
         volumeBeforeMute = getVolume();
         isMuted = true;
         setVolume(0.0f);
+        saveMuteState();
         return true;
     }
 
@@ -307,6 +328,7 @@ public class ConfigManager {
 
         isMuted = false;
         setVolume(volumeBeforeMute);
+        saveMuteState();
         return true;
     }
 

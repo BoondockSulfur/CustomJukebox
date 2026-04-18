@@ -40,6 +40,7 @@ public class PlaybackManager {
 
     /**
      * Internal class to manage playlist queues.
+     * All methods are synchronized to prevent race conditions when accessed from multiple threads.
      */
     private static class PlaylistQueue {
         private final List<CustomDisc> discs;
@@ -54,16 +55,16 @@ public class PlaybackManager {
             this.range = range != null ? range : new PlaybackRange(PlaybackRange.RangeType.NORMAL);
         }
 
-        CustomDisc getCurrentDisc() {
+        synchronized CustomDisc getCurrentDisc() {
             if (discs.isEmpty()) return null;
             return discs.get(currentIndex);
         }
 
-        boolean hasNext() {
+        synchronized boolean hasNext() {
             return loop || (currentIndex + 1 < discs.size());
         }
 
-        CustomDisc next() {
+        synchronized CustomDisc next() {
             if (discs.isEmpty()) return null;
 
             // Check if we can advance before incrementing
@@ -85,7 +86,7 @@ public class PlaybackManager {
             return discs.get(currentIndex);
         }
 
-        CustomDisc peekNext() {
+        synchronized CustomDisc peekNext() {
             if (!hasNext()) return null;
 
             int nextIndex = currentIndex + 1;
@@ -99,11 +100,11 @@ public class PlaybackManager {
             return discs.get(nextIndex);
         }
 
-        int getSize() {
+        synchronized int getSize() {
             return discs.size();
         }
 
-        int getCurrentIndex() {
+        synchronized int getCurrentIndex() {
             return currentIndex;
         }
     }
@@ -478,8 +479,8 @@ public class PlaybackManager {
                     " after " + durationTicks + " ticks");
             }
 
-            JukeboxPlayback playback = getPlayback(location);
-            if (playback != null) {
+            JukeboxPlayback playback = activePlaybacks.get(locationKey);
+            if (playback != null && !playback.isStopped()) {
                 if (plugin.getConfigManager().isDebug()) {
                     plugin.getLogger().info("[AutoStop] Playback active, stopping: " +
                         playback.getDisc().getId());

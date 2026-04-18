@@ -236,7 +236,7 @@ assets/customjukebox/textures/item/epic_journey_disc.png
 
 ## 📝 Notes
 
-- **Pack Format 34** is for Minecraft 1.21+
+- **Pack Format 75** is for Minecraft 1.21.11 (use `supported_formats` for backwards compatibility)
 - For older versions, check: https://minecraft.wiki/w/Pack_format
 - Music files should not exceed 10MB each for best performance
 - Test locally first: Place pack in `.minecraft/resourcepacks/`

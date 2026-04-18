@@ -307,17 +307,9 @@ public class DiscManager {
                 throw new IOException("Temporary file creation failed or file is empty");
             }
 
-            // Atomic rename: temp file to actual file
-            // On Windows, we need to delete the target first if it exists
-            if (discsFile.exists()) {
-                if (!discsFile.delete()) {
-                    throw new IOException("Could not delete old disc.json for replacement");
-                }
-            }
-
-            if (!tempFile.renameTo(discsFile)) {
-                throw new IOException("Could not rename temporary file to disc.json");
-            }
+            // Atomic rename: use Files.move which handles replace on most platforms
+            // This is safer than delete+rename which can lose data if rename fails after delete
+            Files.move(tempFile.toPath(), discsFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
             plugin.getLogger().info("Saved disc configuration to disc.json");
 

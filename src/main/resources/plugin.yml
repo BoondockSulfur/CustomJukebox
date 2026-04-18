@@ -31,6 +31,7 @@ permissions:
       customjukebox.volume: true
       customjukebox.playlist: true
       customjukebox.updatenotify: true
+      customjukebox.bypass.protection: true
 
   customjukebox.user:
     description: Grants access to all CustomJukebox user commands
@@ -88,4 +89,8 @@ permissions:
 
   customjukebox.updatenotify:
     description: Receive notifications about available plugin updates
+    default: op
+
+  customjukebox.bypass.protection:
+    description: Bypass WorldGuard/GriefPrevention protection checks for jukeboxes
     default: op

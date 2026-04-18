@@ -566,23 +566,51 @@ ffmpeg -i input.wav -ac 1 -c:a libvorbis -b:a 96k epic_journey.ogg
 
 ### Permissions
 
+#### Parent Permissions (Gruppen)
+
+| Permission | Beschreibung | Standard | Enthält |
+|------------|-------------|----------|---------|
+| `customjukebox.admin` | Alle Admin-Befehle | **OP** | `reload`, `give`, `fragment`, `list`, `info`, `gui`, `play`, `stop`, `volume`, `playlist`, `updatenotify` |
+| `customjukebox.user` | Alle Spieler-Befehle | **Alle** | `use`, `gui`, `list`, `info` |
+
+#### Einzelne Permissions
+
+| Permission | Beschreibung | Standard | Befehle |
+|------------|-------------|----------|---------|
+| `customjukebox.use` | Benutzung von Custom Jukeboxen (Discs einlegen/entnehmen) | Alle | - |
+| `customjukebox.gui` | Disc-Auswahl GUI öffnen | Alle | `/cjb gui` |
+| `customjukebox.list` | Alle Custom Discs auflisten | Alle | `/cjb list` |
+| `customjukebox.info` | Details einer Disc anzeigen | Alle | `/cjb info <disc>` |
+| `customjukebox.reload` | Plugin-Konfiguration neu laden | OP | `/cjb reload` |
+| `customjukebox.give` | Custom Discs an Spieler geben | OP | `/cjb give <player> <disc> [amount]` |
+| `customjukebox.fragment` | Fragmente an Spieler geben | OP | `/cjb fragment <player> <disc> [amount]` |
+| `customjukebox.play` | Discs direkt abspielen (ohne Jukebox) | OP | `/cjb play <disc> [loop] [range]` |
+| `customjukebox.stop` | Alle aktiven Wiedergaben stoppen | OP | `/cjb stop` |
+| `customjukebox.volume` | Lautstärke ändern, Mute/Unmute | OP | `/cjb volume`, `/cjb mute`, `/cjb unmute` |
+| `customjukebox.playlist` | Playlists verwalten und abspielen | OP | `/cjb playlist <...>` |
+| `customjukebox.updatenotify` | Update-Benachrichtigungen beim Login | OP | - |
+
+#### Übersicht als Baum
+
 ```
-customjukebox.*                    # Full access
-  ├── customjukebox.admin          # All admin commands
-  │   ├── customjukebox.reload
-  │   ├── customjukebox.give
-  │   ├── customjukebox.fragment
-  │   ├── customjukebox.play
-  │   ├── customjukebox.stop
-  │   ├── customjukebox.volume
-  │   └── customjukebox.playlist
-  └── customjukebox.user           # Player features
-      ├── customjukebox.use
-      ├── customjukebox.gui
-      ├── customjukebox.list
-      ├── customjukebox.info
-      └── customjukebox.help
+customjukebox.admin          (OP)     → Alle Admin-Befehle
+  ├── customjukebox.reload             → Config neu laden
+  ├── customjukebox.give               → Discs geben
+  ├── customjukebox.fragment           → Fragmente geben
+  ├── customjukebox.play               → Direkt abspielen
+  ├── customjukebox.stop               → Wiedergabe stoppen
+  ├── customjukebox.volume             → Lautstärke / Mute
+  ├── customjukebox.playlist           → Playlist-Verwaltung
+  └── customjukebox.updatenotify       → Update-Hinweise
+
+customjukebox.user           (Alle)   → Alle Spieler-Befehle
+  ├── customjukebox.use                → Jukeboxen benutzen
+  ├── customjukebox.gui                → GUI öffnen
+  ├── customjukebox.list               → Discs auflisten
+  └── customjukebox.info               → Disc-Details anzeigen
 ```
+
+> **Hinweis:** Spieler mit `customjukebox.give` können im GUI auch kostenlos Discs erhalten. Spieler ohne diese Permission müssen die entsprechende Disc im Inventar haben, um sie über das GUI in eine Jukebox einzulegen.
 
 ---
 

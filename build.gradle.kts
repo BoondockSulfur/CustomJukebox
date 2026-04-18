@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "de.boondocksulfur"
-version = "2.1.3"
+version = "2.1.5"
 
 repositories {
     mavenCentral()
@@ -15,7 +15,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
     compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.9")
     compileOnly("com.github.TechFortress:GriefPrevention:16.18.2")
     compileOnly("me.clip:placeholderapi:2.11.6")
@@ -54,6 +54,7 @@ tasks {
     }
 
     processResources {
+        inputs.property("version", project.version)
         filesMatching("plugin.yml") {
             expand("version" to project.version)
         }

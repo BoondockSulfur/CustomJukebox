@@ -5,6 +5,7 @@ import com.sk89q.worldguard.LocalPlayer;
 import com.sk89q.worldguard.WorldGuard;
 import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
 import com.sk89q.worldguard.protection.flags.Flags;
+import com.sk89q.worldguard.protection.flags.StateFlag;
 import com.sk89q.worldguard.protection.regions.RegionContainer;
 import com.sk89q.worldguard.protection.regions.RegionQuery;
 import de.boondocksulfur.customjukebox.CustomJukebox;
@@ -69,30 +70,51 @@ public class IntegrationManager {
     }
 
     /**
+     * Result of a jukebox permission check.
+     * Allows the caller to distinguish between different denial reasons.
+     */
+    public enum ProtectionResult {
+        ALLOWED,
+        DENIED_WORLDGUARD,
+        DENIED_GRIEFPREVENTION
+    }
+
+    /**
      * Checks if a player can use a jukebox at a location.
      * Considers WorldGuard regions and GriefPrevention claims.
+     * Players with customjukebox.bypass.protection skip all protection checks.
      *
+     * @param player Player to check
+     * @param location Jukebox location
+     * @return ProtectionResult indicating the result
+     */
+    public ProtectionResult checkProtection(Player player, Location location) {
+        // Bypass permission skips all protection checks
+        if (player.hasPermission("customjukebox.bypass.protection")) {
+            return ProtectionResult.ALLOWED;
+        }
+
+        // Check WorldGuard
+        if (worldGuardEnabled && !canUseJukeboxWorldGuard(player, location)) {
+            return ProtectionResult.DENIED_WORLDGUARD;
+        }
+
+        // Check GriefPrevention
+        if (griefPreventionEnabled && !canUseJukeboxGriefPrevention(player, location)) {
+            return ProtectionResult.DENIED_GRIEFPREVENTION;
+        }
+
+        return ProtectionResult.ALLOWED;
+    }
+
+    /**
+     * Simple check if a player can use a jukebox at a location.
      * @param player Player to check
      * @param location Jukebox location
      * @return true if player can use jukebox
      */
     public boolean canUseJukebox(Player player, Location location) {
-        // OPs always have permission
-        if (player.isOp()) {
-            return true;
-        }
-
-        // Check WorldGuard
-        if (worldGuardEnabled && !canUseJukeboxWorldGuard(player, location)) {
-            return false;
-        }
-
-        // Check GriefPrevention
-        if (griefPreventionEnabled && !canUseJukeboxGriefPrevention(player, location)) {
-            return false;
-        }
-
-        return true; // No restrictions or all checks passed
+        return checkProtection(player, location) == ProtectionResult.ALLOWED;
     }
 
     /**
@@ -115,11 +137,13 @@ public class IntegrationManager {
             RegionContainer container = WorldGuard.getInstance().getPlatform().getRegionContainer();
             RegionQuery query = container.createQuery();
 
-            // Check USE flag (required to interact with jukeboxes)
-            if (!query.testState(wgLocation, localPlayer, Flags.USE)) {
+            // Only block if USE flag is explicitly set to DENY
+            // If no flag is set (null), allow by default
+            StateFlag.State state = query.queryState(wgLocation, localPlayer, Flags.USE);
+            if (state == StateFlag.State.DENY) {
                 if (plugin.getConfigManager().isDebug()) {
                     plugin.getLogger().info("WorldGuard: Player " + player.getName() +
-                        " denied jukebox use at " + location);
+                        " denied jukebox use at " + location + " (USE flag explicitly DENY)");
                 }
                 return false;
             }

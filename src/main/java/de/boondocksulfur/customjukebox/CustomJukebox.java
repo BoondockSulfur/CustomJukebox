@@ -104,6 +104,9 @@ public class CustomJukebox extends JavaPlugin {
             playbackManager.stopAllPlaybacks();
         }
 
+        // Cancel any pending scheduler tasks to prevent async operations after disable
+        getServer().getScheduler().cancelTasks(this);
+
         getLogger().info("CustomJukebox has been disabled!");
     }
 
