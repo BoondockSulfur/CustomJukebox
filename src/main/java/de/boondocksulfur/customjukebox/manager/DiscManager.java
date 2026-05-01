@@ -227,7 +227,11 @@ public class DiscManager {
         try {
             String displayName = colorize(getString(data, "displayName", "Custom Disc"));
             String author = colorize(getString(data, "author", "Unknown"));
-            String soundKey = getString(data, "sound", "");
+            // Read "sound" (official) with "soundKey" fallback (legacy from GUI writes before v2.1.6)
+            String soundKey = getString(data, "sound", null);
+            if (soundKey == null) {
+                soundKey = getString(data, "soundKey", "");
+            }
             String discTypeName = getString(data, "type", "MUSIC_DISC_13");
             int customModelData = getInt(data, "customModelData", 1001);
             int durationTicks = getInt(data, "durationTicks", 0);
@@ -930,12 +934,20 @@ public class DiscManager {
         switch (field) {
             case "displayName":
             case "author":
-            case "soundKey":
             case "category":
                 if (value == null) {
                     discData.remove(field);
                 } else {
                     discData.addProperty(field, (String) value);
+                }
+                break;
+            case "sound":
+            case "soundKey": // Accept both, always write as "sound"
+                discData.remove("soundKey"); // Clean up legacy key if present
+                if (value == null) {
+                    discData.remove("sound");
+                } else {
+                    discData.addProperty("sound", (String) value);
                 }
                 break;
             case "durationTicks":
@@ -965,7 +977,7 @@ public class DiscManager {
 
         discData.addProperty("displayName", disc.getDisplayName());
         discData.addProperty("author", disc.getAuthor());
-        discData.addProperty("soundKey", disc.getSoundKey());
+        discData.addProperty("sound", disc.getSoundKey());
         discData.addProperty("durationTicks", disc.getDurationTicks());
         discData.addProperty("customModelData", disc.getCustomModelData());
 

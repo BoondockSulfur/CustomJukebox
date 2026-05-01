@@ -39,6 +39,8 @@ Music files **must** be in `.ogg` format (Ogg Vorbis).
 
 ### Step 2: Add music files
 
+> **Note:** This template does not include real `.ogg` music files. You must add your own before the pack will play any sounds.
+
 1. Place your `.ogg` files in `assets/customjukebox/sounds/`
 2. Name them exactly as defined in your `disc.json` (e.g. `epic_journey.ogg`)
 
@@ -48,22 +50,22 @@ Add an entry for each sound:
 
 ```json
 {
-  "your_song_name": {
+  "music_disc.your_song_name": {
     "sounds": [
       {
         "name": "customjukebox:your_song_name",
         "stream": true
       }
-    ],
-    "subtitle": "Your Song Title"
+    ]
   }
 }
 ```
 
 **Important:**
 - `"stream": true` is required for music to reduce memory usage
-- Sound name must match the filename (without `.ogg`)
-- Sound key in disc.json must be `"customjukebox:your_song_name"`
+- The `name` field must match the filename (without `.ogg`) — e.g. `customjukebox:your_song_name` → `assets/customjukebox/sounds/your_song_name.ogg`
+- The event key uses the `music_disc.` prefix (e.g. `music_disc.your_song_name`)
+- Sound key in disc.json must be `"customjukebox:music_disc.your_song_name"`
 
 ### Step 4: Update disc.json
 
@@ -75,7 +77,7 @@ In your server's `plugins/CustomJukebox/disc.json`, configure the disc:
     "your_disc_id": {
       "displayName": "&6Your Disc Name",
       "author": "Artist Name",
-      "sound": "customjukebox:your_song_name",
+      "sound": "customjukebox:music_disc.your_song_name",
       "type": "MUSIC_DISC_13",
       "customModelData": 1001,
       "durationTicks": 6000,
@@ -91,7 +93,7 @@ In your server's `plugins/CustomJukebox/disc.json`, configure the disc:
 ```
 
 **Important:**
-- `sound` must match the sound key in sounds.json
+- `sound` must match the full namespaced event key (e.g. `customjukebox:music_disc.your_song_name`)
 - `durationTicks` is the song length in ticks (20 ticks = 1 second)
 - All string values must be quoted in JSON
 
@@ -129,12 +131,18 @@ zip -r ../customjukebox-resourcepack.zip *
 4. Publish release
 5. Copy the direct download URL (right-click the .zip → Copy link address)
 
+> **Warning:** Do not use GitHub `/blob/` URLs. They point to a GitHub webpage, not directly to the ZIP file.
+>
+> **Bad:** `https://github.com/user/repo/blob/main/customjukebox-resourcepack.zip`
+>
+> **Good:** `https://github.com/user/repo/releases/download/v1/customjukebox-resourcepack.zip`
+
 ### Option 2: DropBox
 
 1. Upload pack to DropBox
 2. Share → Copy link
 3. Change `?dl=0` to `?dl=1` at the end of the URL
-4. Use this modified URL in config.yml
+4. Use this modified URL as the `resource-pack` value in `server.properties`.
 
 ### Option 3: Google Drive
 
@@ -159,7 +167,7 @@ certutil -hashfile customjukebox-resourcepack.zip SHA1
 sha1sum customjukebox-resourcepack.zip
 ```
 
-Copy the hash and paste it into `config.yml` under `resource-pack.hash`.
+Copy the hash and paste it into `server.properties` as `resource-pack-sha1`.
 
 ## ⚙️ Configure Server
 
@@ -236,7 +244,7 @@ assets/customjukebox/textures/item/epic_journey_disc.png
 
 ## 📝 Notes
 
-- **Pack Format 75** is for Minecraft 1.21.11 (use `supported_formats` for backwards compatibility)
+- For Minecraft 1.21.9 and newer, use `min_format` and `max_format` for compatibility ranges. This example uses `[69, 0]` to `[75, 0]`, covering Minecraft 1.21.9 through 1.21.11.
 - For older versions, check: https://minecraft.wiki/w/Pack_format
 - Music files should not exceed 10MB each for best performance
 - Test locally first: Place pack in `.minecraft/resourcepacks/`

@@ -406,18 +406,73 @@ customjukebox-resourcepack/
 
 ### Step 2: Create `pack.mcmeta`
 
+Minecraft 1.21.9+ uses a new metadata format with `min_format` and `max_format` instead of `pack_format`.
+
+#### Minecraft 1.21.9 – 1.21.10
+
 ```json
 {
   "pack": {
-    "pack_format": 34,
-    "description": "CustomJukebox Resource Pack\nCustom Music Discs & Fragments"
+    "description": "CustomJukebox Resource Pack",
+    "min_format": [69, 0],
+    "max_format": [69, 0]
   }
 }
 ```
 
-**Pack Format Versions:**
-- Minecraft 1.21.x: `34`
-- Minecraft 1.20.5-1.20.6: `32`
+#### Minecraft 1.21.11
+
+```json
+{
+  "pack": {
+    "description": "CustomJukebox Resource Pack",
+    "min_format": [75, 0],
+    "max_format": [75, 0]
+  }
+}
+```
+
+#### Compatible with Minecraft 1.21.9, 1.21.10, and 1.21.11
+
+```json
+{
+  "pack": {
+    "description": "CustomJukebox Resource Pack",
+    "min_format": [69, 0],
+    "max_format": [75, 0]
+  }
+}
+```
+
+> **Note:** A compatibility range like this is only appropriate if your resource pack uses assets and features that are actually compatible across all versions in the range. If your pack relies on features introduced in a specific version, narrow the range accordingly.
+
+#### Older Minecraft versions (before 1.21.9)
+
+Versions before 1.21.9 use the legacy `pack_format` integer field. Each sub-version has its own format number:
+
+```json
+{
+  "pack": {
+    "pack_format": 34,
+    "description": "CustomJukebox Resource Pack"
+  }
+}
+```
+
+> **Important:** `pack_format: 34` is only correct for Minecraft 1.21.0. Each later sub-version bumps this number. Do not use `34` for all of "Minecraft 1.21.x". For Minecraft 1.21.9+, use the `min_format` / `max_format` style shown above.
+
+**Reference:**
+| Minecraft Version | Resource Pack Format |
+|-------------------|---------------------|
+| 1.21.0 | `pack_format: 34` |
+| 1.21.4 | `pack_format: 46` |
+| 1.21.5 | `pack_format: 55` |
+| 1.21.7 | `pack_format: 64` |
+| 1.21.9 – 1.21.10 | `min_format: [69, 0]` / `max_format: [69, 0]` |
+| 1.21.11 | `min_format: [75, 0]` / `max_format: [75, 0]` |
+| 1.20.5 – 1.20.6 | `pack_format: 32` |
+
+> **Note:** Minecraft may still load a pack with an outdated format number if the assets are compatible, but the metadata should be accurate to avoid client warnings.
 
 ### Step 3: Create `sounds.json`
 
@@ -497,15 +552,85 @@ ffmpeg -i input.wav -ac 1 -c:a libvorbis -b:a 96k epic_journey.ogg
 
 ### Step 6: Host Pack
 
-#### Option A: GitHub (Recommended)
-1. Create GitHub Repository
-2. Upload `customjukebox-pack.zip`
-3. Create Release
-4. Copy download URL (Direct Download Link!)
+#### Option A: GitHub Releases (Recommended)
+1. Create a GitHub Repository
+2. Upload `customjukebox-pack.zip` as a Release asset
+3. Copy the **direct download URL** from the Release
 
 #### Option B: Own Server
 - Host on your web server (HTTPS required!)
 - URL: `https://yourserver.com/packs/customjukebox-pack.zip`
+
+---
+
+### ⚠️ GitHub URL Warning
+
+> **Do not use GitHub `/blob/` URLs as server resource pack URLs.** They point to a GitHub webpage, not directly to the ZIP file. Minecraft cannot load resource packs from HTML pages.
+
+The URL you configure must download the ZIP file directly when opened in a browser.
+
+**Bad** (points to a webpage):
+```
+https://github.com/user/repo/blob/main/resource-pack.zip
+```
+
+**Better** (direct download from GitHub Releases):
+```
+https://github.com/user/repo/releases/download/v1/resource-pack.zip
+```
+
+**Optional raw fallback** (direct download from repo):
+```
+https://github.com/user/repo/raw/refs/heads/main/resource-pack.zip
+```
+
+> **Tip:** Use GitHub Releases for hosting downloadable resource packs. Release asset URLs are stable and always serve a direct file download.
+
+---
+
+### 📦 ZIP Structure
+
+When creating your resource pack ZIP, make sure `pack.mcmeta` and `assets/` are at the **root** of the ZIP file.
+
+**Correct** (zip the contents):
+```
+resource-pack.zip
+├── pack.mcmeta
+├── pack.png
+└── assets/
+```
+
+**Incorrect** (zipped the folder itself):
+```
+resource-pack.zip
+└── resource-pack/
+    ├── pack.mcmeta
+    ├── pack.png
+    └── assets/
+```
+
+> **Important:** Select and zip the **contents** of your resource pack folder, not the folder itself. If `pack.mcmeta` is nested inside a subfolder in the ZIP, Minecraft will not recognize the pack.
+
+---
+
+### 🛠️ Troubleshooting
+
+If you see this error in the server console:
+
+```
+Resource Pack hash is outdated. Updating it...
+Error updating the Resource Pack hash! Continuing with no hash...
+```
+
+Check the following:
+
+- [ ] **URL is a direct download** — not a GitHub `/blob/` URL. Open the URL in your browser; it should immediately download a `.zip` file, not show a webpage.
+- [ ] **`pack.mcmeta` is at the root of the ZIP** — not inside a subfolder.
+- [ ] **`assets/` is at the root of the ZIP** — same level as `pack.mcmeta`.
+- [ ] **You zipped the contents, not the folder** — see ZIP structure above.
+- [ ] **SHA1 hash is up to date** — recalculate the hash every time you change and re-upload the ZIP.
+- [ ] **Clear client resource pack cache** — if testing repeated uploads with the same URL, clients may use a cached (old) version. Delete the `server-resource-packs` folder in the client's `.minecraft` directory.
+- [ ] **URL serves a `.zip` file** — verify the download is a valid ZIP archive, not an HTML error page.
 
 ---
 
@@ -923,7 +1048,7 @@ SOFTWARE.
 
 ---
 
-**Version**: 2.0.0
+**Version**: 2.1.6
 **Minecraft Version**: Paper 1.21+ / Folia 1.21+
 **Java Version**: 21+
 **Author**: BoondockSulfur

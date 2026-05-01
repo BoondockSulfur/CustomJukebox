@@ -6,6 +6,7 @@ import org.bukkit.entity.Player;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Represents an active playback session for a jukebox.
@@ -34,7 +35,7 @@ public class JukeboxPlayback {
         this.jukeboxLocation = jukeboxLocation.clone();
         this.disc = disc;
         this.startTime = System.currentTimeMillis();
-        this.listeners = new HashSet<>();
+        this.listeners = ConcurrentHashMap.newKeySet();
         this.stopped = false;
         this.loop = loop;
         this.range = range != null ? range : new PlaybackRange(PlaybackRange.RangeType.NORMAL);

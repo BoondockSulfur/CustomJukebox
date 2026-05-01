@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.6] - 2026-05-01
+
+### Fixed
+- **Critical: sound/soundKey field mismatch** — Discs created or edited via GUI wrote `"soundKey"` to disc.json, but the loader only read `"sound"`. After a reload, the custom sound was silently lost.
+  - `saveDiscToConfig()` and `updateDiscField()` now consistently write `"sound"` (the official field name)
+  - `parseDiscFromJson()` now reads `"sound"` with `"soundKey"` as backward-compatible fallback
+  - DiscEditorGUIv2 now passes `"sound"` instead of `"soundKey"` to `updateDiscField()`
+  - Existing disc.json files with `"soundKey"` entries will be read correctly (no manual migration needed)
+
+- **ParrotDanceListener NPE**: Added null-check for `getWorld()` before calling `getNearbyEntities()`. Prevents crash when jukebox is in an unloaded world.
+
+- **JukeboxPlayback thread-safety**: Changed internal `listeners` set from `HashSet` to `ConcurrentHashMap.newKeySet()`. Prevents potential `ConcurrentModificationException` when players join/leave during playback.
+
+- **Config values without bounds validation**: All numeric config getters now clamp to valid ranges:
+  - `volume`: 0.0–4.0
+  - `creeper-drop-chance` / `loot-chance`: 0.0–1.0
+  - `max-loot-discs` / `fragments-per-disc`: 1–64
+  - `jukebox-hearing-radius`: 1–512
+  - `dance-radius`: 1–32
+
+### Removed
+- **ColorUtil class deleted**: Deprecated since v2.1.0, internally fully replaced by `AdventureUtil`. No remaining usages in plugin code. Removed unused import from `DiscEditorGUIv2`.
+
+### Changed
+- **README overhauled: Resource Pack documentation**
+  - Replaced misleading `pack_format: 34` for "Minecraft 1.21.x" with accurate per-version format table
+  - Added modern `min_format` / `max_format` examples for Minecraft 1.21.9, 1.21.10, and 1.21.11
+  - Added GitHub URL warning (don't use `/blob/` URLs for server resource packs)
+  - Added ZIP structure documentation (correct vs incorrect root layout)
+  - Added troubleshooting checklist for "Resource Pack hash is outdated" error
+- **Example resource pack updated**: `pack.mcmeta` now uses `min_format: [69, 0]` / `max_format: [75, 0]` (compatible with MC 1.21.9–1.21.11)
+- **Example resource pack README fixed**:
+  - Added note that template does not include real `.ogg` files
+  - Replaced outdated `supported_formats` reference with `min_format`/`max_format` explanation
+  - Unified sound key examples to consistently use `music_disc.` prefix
+  - Fixed incorrect `config.yml` reference → `server.properties` as `resource-pack-sha1`
+
+---
+
 ## [2.1.5] - 2026-04-18
 
 ### Fixed

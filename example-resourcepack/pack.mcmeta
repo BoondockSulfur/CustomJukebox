@@ -1,7 +1,7 @@
 {
   "pack": {
-    "pack_format": 75,
-    "supported_formats": [34, 75],
-    "description": "§6CustomJukebox Resource Pack\n§7Custom music discs for Minecraft"
+    "description": "§6CustomJukebox Resource Pack\n§7Custom music discs for Minecraft",
+    "min_format": [69, 0],
+    "max_format": [75, 0]
   }
 }

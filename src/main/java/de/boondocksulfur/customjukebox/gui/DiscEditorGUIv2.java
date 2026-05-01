@@ -4,7 +4,6 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
-import de.boondocksulfur.customjukebox.utils.ColorUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -664,7 +663,7 @@ public class DiscEditorGUIv2 implements Listener {
                     MessageUtil.sendMessage(player, "&7Reopening editor...");
                     success = false;
                 } else {
-                    plugin.getDiscManager().updateDiscField(discId, "soundKey", input);
+                    plugin.getDiscManager().updateDiscField(discId, "sound", input);
                     MessageUtil.sendMessage(player, "&a✓ Sound Key updated: &b" + input);
                 }
                 break;
