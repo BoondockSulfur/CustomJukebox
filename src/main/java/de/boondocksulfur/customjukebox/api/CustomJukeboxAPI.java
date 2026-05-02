@@ -324,4 +324,17 @@ public class CustomJukeboxAPI {
     public String getMessage(String key, String placeholder, String value) {
         return plugin.getLanguageManager().getMessage(key, placeholder, value);
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // Data Access (for companion plugins)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Gets the plugin's data folder.
+     * Companion plugins can use this to locate disc sound files.
+     * @return Plugin data folder
+     */
+    public java.io.File getPluginDataFolder() {
+        return plugin.getDataFolder();
+    }
 }

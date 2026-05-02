@@ -7,6 +7,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0.0] - 2026-05-02
+
+### Added
+- **Public API Events**: New event system for companion plugins
+  - `DiscPlaybackStartEvent` — Cancellable event fired when a disc starts playing. Exposes disc, location, and mutable listener set.
+  - `DiscPlaybackStopEvent` — Fired when playback stops, with `StopReason` enum (MANUAL, DURATION_END, BLOCK_BREAK, PLUGIN).
+  - `DiscRegisteredEvent` — Fired when a new disc is created via GUI or config.
+  - `DiscRemovedEvent` — Fired when a disc is removed, includes a snapshot of the deleted disc.
+- **API method**: `CustomJukeboxAPI.getPluginDataFolder()` — Allows companion plugins to locate disc sound files.
+
+### Changed
+- **PlaybackManager**: Now fires `DiscPlaybackStartEvent` before playing sounds (allows cancellation and listener modification) and `DiscPlaybackStopEvent` on stop.
+- **DiscManager**: Now fires `DiscRegisteredEvent` on disc creation and `DiscRemovedEvent` on disc deletion.
+
+### Technical
+- New package: `de.boondocksulfur.customjukebox.api.events` with 4 event classes
+- All events follow standard Bukkit event patterns (HandlerList, static getHandlerList)
+- Zero behavior change for existing users — events are no-ops without listeners
+- Foundation for the new [BS-CustomJukebox Bedrock Extension](https://modrinth.com/plugin/bs-customjukebox-bedrock-extension)
+
+---
+
+## [2.1.6] - 2026-05-01
+
+### Fixed
+- **Critical: sound/soundKey field mismatch** — Discs created or edited via GUI wrote `"soundKey"` to disc.json, but the loader only read `"sound"`. After a reload, the custom sound was silently lost.
+  - `saveDiscToConfig()` and `updateDiscField()` now consistently write `"sound"` (the official field name)
+  - `parseDiscFromJson()` now reads `"sound"` with `"soundKey"` as backward-compatible fallback
+  - DiscEditorGUIv2 now passes `"sound"` instead of `"soundKey"` to `updateDiscField()`
+  - Existing disc.json files with `"soundKey"` entries will be read correctly (no manual migration needed)
+
+- **ParrotDanceListener NPE**: Added null-check for `getWorld()` before calling `getNearbyEntities()`. Prevents crash when jukebox is in an unloaded world.
+
+- **JukeboxPlayback thread-safety**: Changed internal `listeners` set from `HashSet` to `ConcurrentHashMap.newKeySet()`. Prevents potential `ConcurrentModificationException` when players join/leave during playback.
+
+- **Config values without bounds validation**: All numeric config getters now clamp to valid ranges:
+  - `volume`: 0.0–4.0
+  - `creeper-drop-chance` / `loot-chance`: 0.0–1.0
+  - `max-loot-discs` / `fragments-per-disc`: 1–64
+  - `jukebox-hearing-radius`: 1–512
+  - `dance-radius`: 1–32
+
+### Removed
+- **ColorUtil class deleted**: Deprecated since v2.1.0, internally fully replaced by `AdventureUtil`. No remaining usages in plugin code. Removed unused import from `DiscEditorGUIv2`.
+
+### Changed
+- **README overhauled: Resource Pack documentation**
+  - Replaced misleading `pack_format: 34` for "Minecraft 1.21.x" with accurate per-version format table
+  - Added modern `min_format` / `max_format` examples for Minecraft 1.21.9, 1.21.10, and 1.21.11
+  - Added GitHub URL warning (don't use `/blob/` URLs for server resource packs)
+  - Added ZIP structure documentation (correct vs incorrect root layout)
+  - Added troubleshooting checklist for "Resource Pack hash is outdated" error
+- **Example resource pack updated**: `pack.mcmeta` now uses `min_format: [69, 0]` / `max_format: [75, 0]` (compatible with MC 1.21.9–1.21.11)
+- **Example resource pack README fixed**:
+  - Added note that template does not include real `.ogg` files
+  - Replaced outdated `supported_formats` reference with `min_format`/`max_format` explanation
+  - Unified sound key examples to consistently use `music_disc.` prefix
+  - Fixed incorrect `config.yml` reference → `server.properties` as `resource-pack-sha1`
+
+---
+
+## [2.1.5] - 2026-04-18
+
+### Fixed
+- **Permission system completely overhauled**: Players were incorrectly blocked in areas without explicit WorldGuard flags
+  - `customjukebox.use` is now actually checked (previously only defined but never used)
+  - WorldGuard now only checks for explicit `use deny` - Areas without the flag allow jukeboxes
+  - Specific error messages instead of generic “no-permission” (Region/Claim/Permission separated)
+  - New permission `customjukebox.bypass.protection` to bypass WorldGuard/GriefPrevention (default: OP)
+
+- **Various bug fixes**: Fixed several potential crashes and race conditions
+  - Thread safety for the playlist queue (synchronized methods)
+  - Safer file saving with `Files.move()` instead of delete+rename (prevents data loss on Windows)
+  - Null checks for metadata access, WorldGuard locations, and Adventure API colors
+  - ArrayIndexOutOfBounds protection in the Disc Editor for corrupt states
+  - UpdateChecker: JSON null safety and resource leak fix
+
+- **Minor improvements**:
+  - Mute state is now persisted in config.json (survives server restart)
+  - Location-based HashMap key replaced with string key (more reliable cooldown)
+  - Tab completion now shows subcommands even with empty input
+  - Category validation in the Creation Wizard (warning for non-existent categories)
+  - More efficient item distribution (a stack instead of a loop)
+  - Plugin tasks are now properly terminated on onDisable
+
+### Changed
+- **Paper API 1.21.11**: Plugin now compiles and runs against Paper 1.21.11
+- **Resource Pack updated**: `pack_format` set to 75 (1.21.11), sound namespace corrected
+- **Default Configs**: `version` field added to config.json and disc.json
+- **README**: Detailed permissions documentation with tables and descriptions
+
+### Added
+- Permission `customjukebox.bypass.protection` (default: OP, included in `customjukebox.admin`)
+- New error messages in all 4 languages: `no-permission-jukebox`, `no-permission-region`, `no-permission-claim`
+
+---
+
+## [2.1.4] - 2026-04-14
+
+### Fixed
+- **False update notification**: Fixed plugin incorrectly showing "Update to 2.1.3 available" despite already running 2.1.3
+  - Gradle's `processResources` did not track the project version as an explicit task input
+  - Added `inputs.property("version", project.version)` to ensure version changes always trigger resource re-processing
+
+---
+
+## [2.1.3] - 2026-04-10
+
+### Fixed
+- **Message formatting**: All chat messages now use MessageUtil with Adventure API
+  - Replaced all raw `sender.sendMessage(String)` / `player.sendMessage(String)` calls
+  - Replaced hardcoded section sign color codes with ampersand codes
+  - Affects all commands, listeners, and GUI components
+
+- **Error handling**: Replaced all `printStackTrace()` calls with proper `Logger.log()` usage
+  - CJBCommand, ConfigManager, DiscManager, IntegrationManager
+
+- **Give/Fragment command bug**: Fixed commands giving items even with invalid amount input
+  - Added missing `return` after NumberFormatException in GiveSubcommand and FragmentSubcommand
+
+- **Vanilla sound overlap**: Fixed volume fluctuations during custom disc playback
+  - Added `jukebox.stopPlaying()` to stop server-side vanilla playback
+  - Prevents Jukebox block entity from periodically re-triggering vanilla sound
+  - Applied to both manual disc insertion and GUI-based insertion
+
+---
+
 ## [2.1.2] - 2026-03-29
 
 ### Fixed
