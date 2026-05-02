@@ -1,6 +1,8 @@
 package de.boondocksulfur.customjukebox.manager;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
+import de.boondocksulfur.customjukebox.api.events.DiscPlaybackStartEvent;
+import de.boondocksulfur.customjukebox.api.events.DiscPlaybackStopEvent;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.model.JukeboxPlayback;
@@ -158,12 +160,29 @@ public class PlaybackManager {
         // Stop any existing playback at this location first
         stopPlayback(location);
 
+        // Determine eligible listeners before creating playback
+        Set<Player> eligiblePlayers = new HashSet<>();
+        if (disc.hasCustomSound()) {
+            for (Player player : plugin.getServer().getOnlinePlayers()) {
+                if (shouldPlayerHearPlayback(player, location, range)) {
+                    eligiblePlayers.add(player);
+                }
+            }
+        }
+
+        // Fire event — companion plugins can cancel or modify listener set
+        DiscPlaybackStartEvent event = new DiscPlaybackStartEvent(disc, location, eligiblePlayers, loop, range);
+        plugin.getServer().getPluginManager().callEvent(event);
+        if (event.isCancelled()) {
+            return;
+        }
+
         // Create new playback session with loop flag and range
         JukeboxPlayback playback = new JukeboxPlayback(location, disc, loop, range);
         activePlaybacks.put(locationKey, playback);
 
-        // Play sound to players based on range
-        playSoundToPlayers(playback);
+        // Play sound to eligible players (may have been modified by event listeners)
+        playSoundToPlayers(playback, event.getListeners());
 
         // Schedule auto-stop or loop if disc has a duration
         if (disc.getDurationTicks() > 0) {
@@ -214,6 +233,13 @@ public class PlaybackManager {
 
         // Stop sound for all listeners
         stopSoundForListeners(playback);
+
+        // Fire stop event for companion plugins
+        DiscPlaybackStopEvent.StopReason stopReason = clearPlaylistQueue
+            ? DiscPlaybackStopEvent.StopReason.MANUAL
+            : DiscPlaybackStopEvent.StopReason.DURATION_END;
+        plugin.getServer().getPluginManager().callEvent(
+            new DiscPlaybackStopEvent(playback.getDisc(), location, stopReason));
 
         // Mark as stopped and remove
         playback.setStopped(true);
@@ -320,6 +346,29 @@ public class PlaybackManager {
     }
 
     // ==================== PRIVATE HELPER METHODS ====================
+
+    /**
+     * Plays the disc sound to a pre-determined set of players.
+     * Used when the listener set has been determined and potentially modified by events.
+     * @param playback JukeboxPlayback session
+     * @param players Players to receive the sound
+     */
+    private void playSoundToPlayers(JukeboxPlayback playback, Set<Player> players) {
+        CustomDisc disc = playback.getDisc();
+        if (!disc.hasCustomSound()) {
+            return;
+        }
+
+        Location location = playback.getJukeboxLocation();
+        String soundKey = disc.getSoundKey();
+
+        for (Player player : players) {
+            if (player.isOnline()) {
+                playSound(player, location, soundKey);
+                playback.addListener(player);
+            }
+        }
+    }
 
     /**
      * Plays the disc sound to players based on the playback range.

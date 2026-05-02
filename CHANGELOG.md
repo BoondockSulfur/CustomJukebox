@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.0] - 2026-05-02
+
+### Added
+- **Public API Events**: New event system for companion plugins
+  - `DiscPlaybackStartEvent` — Cancellable event fired when a disc starts playing. Exposes disc, location, and mutable listener set.
+  - `DiscPlaybackStopEvent` — Fired when playback stops, with `StopReason` enum (MANUAL, DURATION_END, BLOCK_BREAK, PLUGIN).
+  - `DiscRegisteredEvent` — Fired when a new disc is created via GUI or config.
+  - `DiscRemovedEvent` — Fired when a disc is removed, includes a snapshot of the deleted disc.
+- **API method**: `CustomJukeboxAPI.getPluginDataFolder()` — Allows companion plugins to locate disc sound files.
+
+### Changed
+- **PlaybackManager**: Now fires `DiscPlaybackStartEvent` before playing sounds (allows cancellation and listener modification) and `DiscPlaybackStopEvent` on stop.
+- **DiscManager**: Now fires `DiscRegisteredEvent` on disc creation and `DiscRemovedEvent` on disc deletion.
+
+### Technical
+- New package: `de.boondocksulfur.customjukebox.api.events` with 4 event classes
+- All events follow standard Bukkit event patterns (HandlerList, static getHandlerList)
+- Zero behavior change for existing users — events are no-ops without listeners
+- Foundation for the new [BS-CustomJukebox Bedrock Extension](https://modrinth.com/plugin/bs-customjukebox-bedrock-extension)
+
+---
+
 ## [2.1.6] - 2026-05-01
 
 ### Fixed

@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import de.boondocksulfur.customjukebox.CustomJukebox;
+import de.boondocksulfur.customjukebox.api.events.DiscRegisteredEvent;
+import de.boondocksulfur.customjukebox.api.events.DiscRemovedEvent;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.model.DiscFragment;
@@ -511,6 +513,10 @@ public class DiscManager {
         discsSection.add(id, discData);
 
         saveDiscsFile();
+
+        // Fire event for companion plugins
+        plugin.getServer().getPluginManager().callEvent(new DiscRegisteredEvent(disc));
+
         return true;
     }
 
@@ -519,12 +525,18 @@ public class DiscManager {
             return false;
         }
 
-        discs.remove(id);
+        CustomDisc disc = discs.remove(id);
 
         JsonObject discsSection = discsConfig.getAsJsonObject("discs");
         discsSection.remove(id);
 
         saveDiscsFile();
+
+        // Fire event for companion plugins
+        if (disc != null) {
+            plugin.getServer().getPluginManager().callEvent(new DiscRemovedEvent(id, disc));
+        }
+
         return true;
     }
 
@@ -895,6 +907,10 @@ public class DiscManager {
 
         // Save to JSON
         saveDiscToConfig(disc);
+
+        // Fire event for companion plugins
+        plugin.getServer().getPluginManager().callEvent(new DiscRegisteredEvent(disc));
+
         return true;
     }
 
@@ -906,8 +922,14 @@ public class DiscManager {
             return false;
         }
 
-        discs.remove(id);
+        CustomDisc disc = discs.remove(id);
         removeDiscFromConfig(id);
+
+        // Fire event for companion plugins
+        if (disc != null) {
+            plugin.getServer().getPluginManager().callEvent(new DiscRemovedEvent(id, disc));
+        }
+
         return true;
     }
 

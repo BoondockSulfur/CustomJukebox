@@ -1048,7 +1048,7 @@ SOFTWARE.
 
 ---
 
-**Version**: 2.1.6
+**Version**: 2.2.0
 **Minecraft Version**: Paper 1.21+ / Folia 1.21+
 **Java Version**: 21+
 **Author**: BoondockSulfur
