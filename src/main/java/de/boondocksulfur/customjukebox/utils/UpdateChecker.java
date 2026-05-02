@@ -5,10 +5,13 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 
+import org.bukkit.Bukkit;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -40,9 +43,12 @@ public class UpdateChecker {
 
             try {
                 String currentVersion = plugin.getPluginMeta().getVersion();
+                String mcVersion = Bukkit.getMinecraftVersion();
 
-                // Modrinth API endpoint for project versions
-                String apiUrl = "https://api.modrinth.com/v2/project/" + projectId + "/version";
+                // Modrinth API endpoint filtered by game version
+                String gameVersionsParam = URLEncoder.encode("[\"" + mcVersion + "\"]", StandardCharsets.UTF_8);
+                String apiUrl = "https://api.modrinth.com/v2/project/" + projectId
+                    + "/version?game_versions=" + gameVersionsParam;
 
                 URL url = java.net.URI.create(apiUrl).toURL();
                 connection = (HttpURLConnection) url.openConnection();
@@ -69,8 +75,8 @@ public class UpdateChecker {
                 // Parse JSON response
                 JsonArray versions = JsonParser.parseString(response.toString()).getAsJsonArray();
 
-                if (versions.size() == 0) {
-                    plugin.getLogger().warning("No versions found on Modrinth");
+                if (versions.isEmpty()) {
+                    // No versions for this game version — nothing to update to
                     future.complete(null);
                     return;
                 }
