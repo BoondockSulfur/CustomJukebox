@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.1] - 2026-05-03
+
+### Fixed
+- **UpdateChecker**: Now filters by game version via Modrinth API so users only see updates compatible with their Minecraft version. Prevents cross-version update notifications (e.g., 26.1 updates shown to 1.21.x servers).
+- **UpdateChecker**: Added missing `import java.net.URL` that caused compilation failure.
+
+---
+
 ## [2.2.0] - 2026-05-02
 
 ### Added
