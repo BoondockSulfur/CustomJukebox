@@ -31,9 +31,28 @@ public class ConfigManager {
     private final File configFile;
     private JsonObject config;
 
-    // Mute state tracking
+    // Mute state tracking (persisted in config.json)
     private boolean isMuted = false;
     private float volumeBeforeMute = 1.0f;
+
+    private void loadMuteState() {
+        isMuted = getBoolean("playback.muted", false);
+        volumeBeforeMute = (float) getDouble("playback.volume-before-mute", 4.0);
+    }
+
+    private void saveMuteState() {
+        try {
+            if (!config.has("playback")) {
+                config.add("playback", new JsonObject());
+            }
+            JsonObject playback = config.getAsJsonObject("playback");
+            playback.addProperty("muted", isMuted);
+            playback.addProperty("volume-before-mute", volumeBeforeMute);
+            save();
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to save mute state: " + e.getMessage());
+        }
+    }
 
     public ConfigManager(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -44,6 +63,7 @@ public class ConfigManager {
         this.configFile = new File(plugin.getDataFolder(), "config.json");
 
         loadConfig();
+        loadMuteState();
     }
 
     /**
@@ -226,7 +246,8 @@ public class ConfigManager {
     }
 
     public double getCreeperDropChance() {
-        return getDouble("discs.creeper-drop-chance", 0.05);
+        double chance = getDouble("discs.creeper-drop-chance", 0.05);
+        return Math.max(0.0, Math.min(1.0, chance));
     }
 
     public boolean isDungeonLootEnabled() {
@@ -238,11 +259,13 @@ public class ConfigManager {
     }
 
     public int getMaxLootDiscs() {
-        return getInt("discs.max-loot-discs", 2);
+        int max = getInt("discs.max-loot-discs", 2);
+        return Math.max(0, Math.min(64, max));
     }
 
     public double getLootChance() {
-        return getDouble("discs.loot-chance", 0.15);
+        double chance = getDouble("discs.loot-chance", 0.15);
+        return Math.max(0.0, Math.min(1.0, chance));
     }
 
     public boolean isCraftingEnabled() {
@@ -250,7 +273,8 @@ public class ConfigManager {
     }
 
     public int getFragmentsPerDisc() {
-        return getInt("discs.fragments-per-disc", 9);
+        int fragments = getInt("discs.fragments-per-disc", 9);
+        return Math.max(1, Math.min(64, fragments));
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -258,7 +282,8 @@ public class ConfigManager {
     // ═══════════════════════════════════════════════════════════
 
     public float getVolume() {
-        return (float) getDouble("playback.volume", 4.0);
+        float volume = (float) getDouble("playback.volume", 4.0);
+        return Math.max(0.0f, Math.min(4.0f, volume));
     }
 
     public void setVolume(float volume) {
@@ -278,7 +303,8 @@ public class ConfigManager {
     }
 
     public int getJukeboxHearingRadius() {
-        return getInt("playback.jukebox-hearing-radius", 64);
+        int radius = getInt("playback.jukebox-hearing-radius", 64);
+        return Math.max(1, Math.min(512, radius));
     }
 
     /**
@@ -293,6 +319,7 @@ public class ConfigManager {
         volumeBeforeMute = getVolume();
         isMuted = true;
         setVolume(0.0f);
+        saveMuteState();
         return true;
     }
 
@@ -307,6 +334,7 @@ public class ConfigManager {
 
         isMuted = false;
         setVolume(volumeBeforeMute);
+        saveMuteState();
         return true;
     }
 
@@ -335,7 +363,8 @@ public class ConfigManager {
     }
 
     public int getDanceRadius() {
-        return getInt("parrots.dance-radius", 3);
+        int radius = getInt("parrots.dance-radius", 3);
+        return Math.max(1, Math.min(32, radius));
     }
 
     // ═══════════════════════════════════════════════════════════

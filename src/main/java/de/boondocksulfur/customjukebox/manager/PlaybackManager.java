@@ -42,6 +42,7 @@ public class PlaybackManager {
 
     /**
      * Internal class to manage playlist queues.
+     * All methods are synchronized to prevent race conditions when accessed from multiple threads.
      */
     private static class PlaylistQueue {
         private final List<CustomDisc> discs;
@@ -56,16 +57,16 @@ public class PlaybackManager {
             this.range = range != null ? range : new PlaybackRange(PlaybackRange.RangeType.NORMAL);
         }
 
-        CustomDisc getCurrentDisc() {
+        synchronized CustomDisc getCurrentDisc() {
             if (discs.isEmpty()) return null;
             return discs.get(currentIndex);
         }
 
-        boolean hasNext() {
+        synchronized boolean hasNext() {
             return loop || (currentIndex + 1 < discs.size());
         }
 
-        CustomDisc next() {
+        synchronized CustomDisc next() {
             if (discs.isEmpty()) return null;
 
             // Check if we can advance before incrementing
@@ -87,7 +88,7 @@ public class PlaybackManager {
             return discs.get(currentIndex);
         }
 
-        CustomDisc peekNext() {
+        synchronized CustomDisc peekNext() {
             if (!hasNext()) return null;
 
             int nextIndex = currentIndex + 1;
@@ -101,11 +102,11 @@ public class PlaybackManager {
             return discs.get(nextIndex);
         }
 
-        int getSize() {
+        synchronized int getSize() {
             return discs.size();
         }
 
-        int getCurrentIndex() {
+        synchronized int getCurrentIndex() {
             return currentIndex;
         }
     }
@@ -441,8 +442,17 @@ public class PlaybackManager {
             player.playSound(location, soundKey, SOUND_CATEGORY, volume, DEFAULT_PITCH);
 
             if (plugin.getConfigManager().isDebug()) {
-                plugin.getLogger().info("Playing sound '" + soundKey + "' to " + player.getName() +
-                    " (volume: " + volume + ")");
+                boolean sameWorld = player.getWorld().equals(location.getWorld());
+                String distance = sameWorld
+                    ? String.format(java.util.Locale.ROOT, "%.1f blocks", player.getLocation().distance(location))
+                    : "N/A (different world)";
+                plugin.getLogger().info("[Volume Debug] Playing '" + soundKey + "' to " + player.getName() +
+                    " | volume=" + volume +
+                    " | distance=" + distance +
+                    " | soundLocation=" + location.getBlockX() + "," + location.getBlockY() + "," + location.getBlockZ() +
+                    " | playerLocation=" + player.getLocation().getBlockX() + "," + player.getLocation().getBlockY() + "," + player.getLocation().getBlockZ() +
+                    " | sameWorld=" + sameWorld +
+                    " | maxRange=" + String.format(java.util.Locale.ROOT, "%.1f", volume * 16) + " blocks");
             }
         } catch (Exception e) {
             plugin.getLogger().severe("═══════════════════════════════════════════════════════════");
@@ -527,8 +537,8 @@ public class PlaybackManager {
                     " after " + durationTicks + " ticks");
             }
 
-            JukeboxPlayback playback = getPlayback(location);
-            if (playback != null) {
+            JukeboxPlayback playback = activePlaybacks.get(locationKey);
+            if (playback != null && !playback.isStopped()) {
                 if (plugin.getConfigManager().isDebug()) {
                     plugin.getLogger().info("[AutoStop] Playback active, stopping: " +
                         playback.getDisc().getId());

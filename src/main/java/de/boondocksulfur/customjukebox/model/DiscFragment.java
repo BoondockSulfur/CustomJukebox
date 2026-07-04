@@ -96,7 +96,9 @@ public class DiscFragment {
             return false;
         }
 
-        if (!meta.hasCustomModelDataComponent()) return false;
+        // getCustomModelDataComponent() returns an empty component if none is set,
+        // so the isEmpty() check below covers items without custom model data.
+        // (hasCustomModelDataComponent() is not available in the 1.21.4 API.)
         List<Float> floats = meta.getCustomModelDataComponent().getFloats();
         return !floats.isEmpty() && floats.get(0) == (float) customModelData;
     }

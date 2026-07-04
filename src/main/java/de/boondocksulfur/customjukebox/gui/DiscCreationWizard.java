@@ -242,7 +242,13 @@ public class DiscCreationWizard implements Listener {
             session.category = null;
             MessageUtil.sendMessage(player, "&a✓ Category: &8None");
         } else {
-            session.category = input.toLowerCase();
+            String categoryId = input.toLowerCase();
+            if (plugin.getDiscManager().getCategory(categoryId) == null) {
+                MessageUtil.sendMessage(player, "&cCategory '" + input + "' does not exist!");
+                MessageUtil.sendMessage(player, "&7The disc will be created with this category anyway.");
+                MessageUtil.sendMessage(player, "&7You can create the category later with the admin GUI.");
+            }
+            session.category = categoryId;
             MessageUtil.sendMessage(player, "&a✓ Category: &e" + input);
         }
 

@@ -6,6 +6,7 @@ import org.bukkit.entity.Player;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Represents an active playback session for a jukebox.
@@ -34,7 +35,7 @@ public class JukeboxPlayback {
         this.jukeboxLocation = jukeboxLocation.clone();
         this.disc = disc;
         this.startTime = System.currentTimeMillis();
-        this.listeners = new HashSet<>();
+        this.listeners = ConcurrentHashMap.newKeySet();
         this.stopped = false;
         this.loop = loop;
         this.range = range != null ? range : new PlaybackRange(PlaybackRange.RangeType.NORMAL);
@@ -156,18 +157,19 @@ public class JukeboxPlayback {
      * @return Location key (world:x:y:z)
      */
     public String getLocationKey() {
-        return jukeboxLocation.getWorld().getName() + ":" +
-               jukeboxLocation.getBlockX() + ":" +
-               jukeboxLocation.getBlockY() + ":" +
-               jukeboxLocation.getBlockZ();
+        return getLocationKey(jukeboxLocation);
     }
 
     /**
      * Creates a location key from a location.
      * @param loc Location
      * @return Location key
+     * @throws IllegalArgumentException if location or its world is null
      */
     public static String getLocationKey(Location loc) {
+        if (loc == null || loc.getWorld() == null) {
+            throw new IllegalArgumentException("Location and its world must not be null");
+        }
         return loc.getWorld().getName() + ":" +
                loc.getBlockX() + ":" +
                loc.getBlockY() + ":" +

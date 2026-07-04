@@ -5,6 +5,9 @@
 # Generale
 prefix: "&8[&6CustomJukebox&8]&r "
 no-permission: "&cNon hai il permesso di farlo!"
+no-permission-jukebox: "&cNon hai il permesso di usare i jukebox!"
+no-permission-region: "&cNon puoi usare i jukebox in questa zona! &7(Regione protetta)"
+no-permission-claim: "&cNon puoi usare i jukebox in questo claim! &7(Claim protetto)"
 player-not-found: "&cGiocatore non trovato!"
 invalid-disc: "&cID disco non valido!"
 plugin-reloaded: "&aPlugin ricaricato con successo!"

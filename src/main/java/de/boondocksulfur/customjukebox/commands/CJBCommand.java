@@ -107,19 +107,16 @@ public class CJBCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (args.length == 0) {
-            return new ArrayList<>();
-        }
-
-        if (args.length == 1) {
+        if (args.length <= 1) {
             // Tab complete subcommand names
+            String prefix = args.length == 1 ? args[0].toLowerCase() : "";
             return subcommandList.stream()
                 .filter(sub -> {
                     String permission = sub.getPermission();
                     return permission == null || sender.hasPermission(permission);
                 })
                 .map(SubCommand::getName)
-                .filter(name -> name.toLowerCase().startsWith(args[0].toLowerCase()))
+                .filter(name -> name.toLowerCase().startsWith(prefix))
                 .collect(Collectors.toList());
         }
 

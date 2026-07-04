@@ -229,7 +229,11 @@ public class DiscManager {
         try {
             String displayName = colorize(getString(data, "displayName", "Custom Disc"));
             String author = colorize(getString(data, "author", "Unknown"));
-            String soundKey = getString(data, "sound", "");
+            // Read "sound" (official) with "soundKey" fallback (legacy from GUI writes before v2.1.6)
+            String soundKey = getString(data, "sound", null);
+            if (soundKey == null) {
+                soundKey = getString(data, "soundKey", "");
+            }
             String discTypeName = getString(data, "type", "MUSIC_DISC_13");
             int customModelData = getInt(data, "customModelData", 1001);
             int durationTicks = getInt(data, "durationTicks", 0);
@@ -309,17 +313,9 @@ public class DiscManager {
                 throw new IOException("Temporary file creation failed or file is empty");
             }
 
-            // Atomic rename: temp file to actual file
-            // On Windows, we need to delete the target first if it exists
-            if (discsFile.exists()) {
-                if (!discsFile.delete()) {
-                    throw new IOException("Could not delete old disc.json for replacement");
-                }
-            }
-
-            if (!tempFile.renameTo(discsFile)) {
-                throw new IOException("Could not rename temporary file to disc.json");
-            }
+            // Atomic rename: use Files.move which handles replace on most platforms
+            // This is safer than delete+rename which can lose data if rename fails after delete
+            Files.move(tempFile.toPath(), discsFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
             plugin.getLogger().info("Saved disc configuration to disc.json");
 
@@ -960,12 +956,20 @@ public class DiscManager {
         switch (field) {
             case "displayName":
             case "author":
-            case "soundKey":
             case "category":
                 if (value == null) {
                     discData.remove(field);
                 } else {
                     discData.addProperty(field, (String) value);
+                }
+                break;
+            case "sound":
+            case "soundKey": // Accept both, always write as "sound"
+                discData.remove("soundKey"); // Clean up legacy key if present
+                if (value == null) {
+                    discData.remove("sound");
+                } else {
+                    discData.addProperty("sound", (String) value);
                 }
                 break;
             case "durationTicks":
@@ -995,7 +999,7 @@ public class DiscManager {
 
         discData.addProperty("displayName", disc.getDisplayName());
         discData.addProperty("author", disc.getAuthor());
-        discData.addProperty("soundKey", disc.getSoundKey());
+        discData.addProperty("sound", disc.getSoundKey());
         discData.addProperty("durationTicks", disc.getDurationTicks());
         discData.addProperty("customModelData", disc.getCustomModelData());
 

@@ -7,25 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [3.0.0] - 2026-05-02
-
-### Added
-- **Public API Events**: New event system for companion plugins
-  - `DiscPlaybackStartEvent` — Cancellable event fired when a disc starts playing. Exposes disc, location, and mutable listener set.
-  - `DiscPlaybackStopEvent` — Fired when playback stops, with `StopReason` enum (MANUAL, DURATION_END, BLOCK_BREAK, PLUGIN).
-  - `DiscRegisteredEvent` — Fired when a new disc is created via GUI or config.
-  - `DiscRemovedEvent` — Fired when a disc is removed, includes a snapshot of the deleted disc.
-- **API method**: `CustomJukeboxAPI.getPluginDataFolder()` — Allows companion plugins to locate disc sound files.
+## [3.1.0] - 2026-07-04
 
 ### Changed
-- **PlaybackManager**: Now fires `DiscPlaybackStartEvent` before playing sounds (allows cancellation and listener modification) and `DiscPlaybackStopEvent` on stop.
-- **DiscManager**: Now fires `DiscRegisteredEvent` on disc creation and `DiscRemovedEvent` on disc deletion.
+- **Unified release**: The 2.x (Minecraft 1.21.x) and 3.0.0 (Minecraft 26.x) lines are merged into a single version. One jar now supports **Paper/Folia 1.21.4 through 26.x**.
+  - Built against Paper API 1.21.4 with `api-version: '1.21'` and Java 21 bytecode — loads on 1.21.4+ servers (Java 21) and 26.x servers (Java 25) alike.
+  - Contains all fixes from the 2.x line (2.1.5–2.2.1) plus the 3.0.0 modernizations (component-based CustomModelData, metadata API replacement).
+- **Example resource pack**: `max_format` raised to `[84, 0]` so the pack is accepted by Minecraft 26.x clients (format 84) while staying compatible with 1.21.9+.
+- **Debug logging**: Volume debug output now includes distance, sound/player coordinates, world check, and estimated max range to help diagnose audibility issues.
 
-### Technical
-- New package: `de.boondocksulfur.customjukebox.api.events` with 4 event classes
-- All events follow standard Bukkit event patterns (HandlerList, static getHandlerList)
-- Zero behavior change for existing users — events are no-ops without listeners
-- Foundation for the new [BS-CustomJukebox Bedrock Extension](https://modrinth.com/plugin/bs-customjukebox-bedrock-extension)
+### Fixed
+- **Debug logging**: Cross-world distance calculation no longer throws an exception when a `GLOBAL` playback reaches players in other worlds (previously triggered a misleading "FAILED TO PLAY SOUND" error with debug mode enabled). Distance is now logged as `N/A (different world)` instead.
+- **Debug logging**: Numbers are formatted locale-independently (always `12.5` instead of `12,5` on e.g. German systems).
+
+### Notes
+- Servers on 1.21.0–1.21.3 should stay on v2.2.1 — the component-based CustomModelData API requires 1.21.4+.
+
+---
+
+## [3.0.0] - 2026-05-02
+
+### Changed
+- **Minecraft 26.1 support**: Upgraded to Paper API 26.1 (Java 25, `api-version: '26.1'`). This release ran on 26.x servers only; superseded by 3.1.0, which supports 1.21.4+ and 26.x with a single jar.
+- **CustomModelData**: Migrated from the deprecated integer API to the component-based API (`CustomModelDataComponent`, floats).
+- **JukeboxListener**: GUI jukebox-location tracking migrated from the deprecated metadata API (`FixedMetadataValue`) to an internal map.
 
 ---
 
@@ -33,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **UpdateChecker**: Now filters by game version via Modrinth API so users only see updates compatible with their Minecraft version. Prevents cross-version update notifications (e.g., 26.1 updates shown to 1.21.x servers).
+- **UpdateChecker**: Added missing `import java.net.URL` that caused compilation failure.
 
 ---
 

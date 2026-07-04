@@ -72,9 +72,9 @@ public class GiveSubcommand implements SubCommand {
             }
         }
 
-        for (int i = 0; i < amount; i++) {
-            target.getInventory().addItem(disc.createItemStack());
-        }
+        org.bukkit.inventory.ItemStack itemStack = disc.createItemStack();
+        itemStack.setAmount(amount);
+        target.getInventory().addItem(itemStack);
 
         MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("disc-given")
             .replace("{disc}", disc.getDisplayName())

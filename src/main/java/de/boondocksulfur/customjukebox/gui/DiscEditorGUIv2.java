@@ -4,7 +4,6 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
-import de.boondocksulfur.customjukebox.utils.ColorUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -610,7 +609,12 @@ public class DiscEditorGUIv2 implements Listener {
 
         if (input.equalsIgnoreCase("cancel")) {
             MessageUtil.sendMessage(player, "&cInput cancelled");
-            String discId = mode.split(":")[1];
+            String[] cancelParts = mode.split(":");
+            if (cancelParts.length < 2) {
+                chatInputMode.remove(player.getUniqueId());
+                return;
+            }
+            String discId = cancelParts[1];
             chatInputMode.remove(player.getUniqueId());
 
             // Reopen editor without closing
@@ -628,6 +632,11 @@ public class DiscEditorGUIv2 implements Listener {
 
     private void handleChatInput(Player player, String mode, String input) {
         String[] parts = mode.split(":");
+        if (parts.length < 2) {
+            MessageUtil.sendMessage(player, "&cInvalid editor state!");
+            chatInputMode.remove(player.getUniqueId());
+            return;
+        }
         String field = parts[0];
         String discId = parts[1];
 
@@ -654,7 +663,7 @@ public class DiscEditorGUIv2 implements Listener {
                     MessageUtil.sendMessage(player, "&7Reopening editor...");
                     success = false;
                 } else {
-                    plugin.getDiscManager().updateDiscField(discId, "soundKey", input);
+                    plugin.getDiscManager().updateDiscField(discId, "sound", input);
                     MessageUtil.sendMessage(player, "&a✓ Sound Key updated: &b" + input);
                 }
                 break;

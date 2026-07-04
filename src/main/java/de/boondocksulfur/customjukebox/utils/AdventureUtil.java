@@ -216,6 +216,10 @@ public class AdventureUtil {
      */
     public static Component createColored(String text, String hexColor) {
         TextColor color = TextColor.fromHexString("#" + hexColor);
+        if (color == null) {
+            // Invalid hex color, return uncolored text
+            return Component.text(text);
+        }
         return Component.text(text).color(color);
     }
 

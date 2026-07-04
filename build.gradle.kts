@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "de.boondocksulfur"
-version = "3.0.0"
+version = "3.1.0"
 
 repositories {
     mavenCentral()
@@ -15,7 +15,9 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.1.1.build.+")
+    // 1.21.4 API: oldest version with the CustomModelDataComponent floats API.
+    // Built jar runs on 1.21.4+ and 26.x (api-version stays '1.21', Java 21 bytecode).
+    compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
     compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.9")
     compileOnly("com.github.TechFortress:GriefPrevention:16.18.2")
     compileOnly("me.clip:placeholderapi:2.11.6")
@@ -26,7 +28,7 @@ dependencies {
 }
 
 java {
-    toolchain.languageVersion.set(JavaLanguageVersion.of(25))
+    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
 }
 
 tasks {
@@ -54,6 +56,7 @@ tasks {
     }
 
     processResources {
+        inputs.property("version", project.version)
         filesMatching("plugin.yml") {
             expand("version" to project.version)
         }

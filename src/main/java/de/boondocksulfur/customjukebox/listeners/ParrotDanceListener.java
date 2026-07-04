@@ -25,7 +25,7 @@ public class ParrotDanceListener implements Listener {
         this.plugin = plugin;
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onDiscInsert(PlayerInteractEvent event) {
         if (!plugin.getConfigManager().isParrotDancingEnabled()) return;
 
@@ -45,6 +45,8 @@ public class ParrotDanceListener implements Listener {
     }
 
     private void makeParrotsDance(Location jukeboxLocation) {
+        if (jukeboxLocation.getWorld() == null) return;
+
         int radius = plugin.getConfigManager().getDanceRadius();
 
         Collection<Entity> nearbyEntities = jukeboxLocation.getWorld()

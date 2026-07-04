@@ -5,6 +5,9 @@
 # General
 prefix: "&8[&6CustomJukebox&8]&r "
 no-permission: "&cYou don't have permission to do that!"
+no-permission-jukebox: "&cYou don't have permission to use jukeboxes!"
+no-permission-region: "&cYou can't use jukeboxes in this area! &7(Region protected)"
+no-permission-claim: "&cYou can't use jukeboxes in this claim! &7(Claim protected)"
 player-not-found: "&cPlayer not found!"
 invalid-disc: "&cInvalid disc ID!"
 plugin-reloaded: "&aPlugin reloaded successfully!"
