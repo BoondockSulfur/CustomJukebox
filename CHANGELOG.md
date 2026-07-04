@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.2] - 2026-07-03
+
+### Changed
+- **Debug logging**: Volume debug output now includes distance, sound/player coordinates, world check, and estimated max range to help diagnose audibility issues.
+
+### Fixed
+- **Debug logging**: Cross-world distance calculation no longer throws an exception when a `GLOBAL` playback reaches players in other worlds (previously triggered a misleading "FAILED TO PLAY SOUND" error with debug mode enabled). Distance is now logged as `N/A (different world)` instead.
+- **Debug logging**: Numbers are formatted locale-independently (always `12.5` instead of `12,5` on e.g. German systems).
+
+---
+
 ## [2.2.1] - 2026-05-03
 
 ### Fixed

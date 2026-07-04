@@ -442,8 +442,17 @@ public class PlaybackManager {
             player.playSound(location, soundKey, SOUND_CATEGORY, volume, DEFAULT_PITCH);
 
             if (plugin.getConfigManager().isDebug()) {
-                plugin.getLogger().info("Playing sound '" + soundKey + "' to " + player.getName() +
-                    " (volume: " + volume + ")");
+                boolean sameWorld = player.getWorld().equals(location.getWorld());
+                String distance = sameWorld
+                    ? String.format(java.util.Locale.ROOT, "%.1f blocks", player.getLocation().distance(location))
+                    : "N/A (different world)";
+                plugin.getLogger().info("[Volume Debug] Playing '" + soundKey + "' to " + player.getName() +
+                    " | volume=" + volume +
+                    " | distance=" + distance +
+                    " | soundLocation=" + location.getBlockX() + "," + location.getBlockY() + "," + location.getBlockZ() +
+                    " | playerLocation=" + player.getLocation().getBlockX() + "," + player.getLocation().getBlockY() + "," + player.getLocation().getBlockZ() +
+                    " | sameWorld=" + sameWorld +
+                    " | maxRange=" + String.format(java.util.Locale.ROOT, "%.1f", volume * 16) + " blocks");
             }
         } catch (Exception e) {
             plugin.getLogger().severe("═══════════════════════════════════════════════════════════");
