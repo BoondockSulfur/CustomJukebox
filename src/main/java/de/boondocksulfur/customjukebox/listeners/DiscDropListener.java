@@ -2,12 +2,15 @@ package de.boondocksulfur.customjukebox.listeners;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.DiscFragment;
+import org.bukkit.entity.AbstractSkeleton;
 import org.bukkit.entity.Creeper;
 import org.bukkit.entity.Entity;
-import org.bukkit.entity.Skeleton;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 
 import java.util.Random;
@@ -46,12 +49,13 @@ public class DiscDropListener implements Listener {
         // Determine if fragment should drop
         boolean shouldDrop = false;
 
-        // Check if creeper was killed by a skeleton (vanilla behavior)
-        Entity killer = creeper.getKiller();
-        if (killer instanceof Skeleton) {
+        // Check if creeper was killed by a skeleton (vanilla behavior).
+        // getKiller() only ever returns players, so the skeleton has to be
+        // resolved from the last damage cause (melee or arrow shooter).
+        if (isKilledBySkeleton(creeper)) {
             shouldDrop = true; // Always drop when killed by skeleton
-        } else if (killer != null) {
-            // Player or other entity killed creeper - use configurable chance
+        } else if (creeper.getKiller() != null) {
+            // Player killed creeper - use configurable chance
             if (random.nextDouble() <= plugin.getConfigManager().getCreeperDropChance()) {
                 shouldDrop = true;
             }
@@ -77,5 +81,25 @@ public class DiscDropListener implements Listener {
                 plugin.getLogger().warning("No fragments available for creeper drop!");
             }
         }
+    }
+
+    /**
+     * Checks whether the creeper's final damage came from a skeleton,
+     * either by melee or by an arrow shot by a skeleton (vanilla disc-drop rule).
+     */
+    private boolean isKilledBySkeleton(Creeper creeper) {
+        EntityDamageEvent lastDamage = creeper.getLastDamageCause();
+        if (!(lastDamage instanceof EntityDamageByEntityEvent damageByEntity)) {
+            return false;
+        }
+
+        Entity damager = damageByEntity.getDamager();
+        if (damager instanceof Projectile projectile
+            && projectile.getShooter() instanceof Entity shooter) {
+            damager = shooter;
+        }
+
+        // AbstractSkeleton covers Skeleton, Stray and Bogged (matches vanilla)
+        return damager instanceof AbstractSkeleton;
     }
 }

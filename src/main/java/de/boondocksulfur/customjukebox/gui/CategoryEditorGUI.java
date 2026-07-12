@@ -3,6 +3,7 @@ package de.boondocksulfur.customjukebox.gui;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.GUIHolder;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -14,6 +15,8 @@ import io.papermc.paper.event.player.AsyncChatEvent;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -58,7 +61,7 @@ public class CategoryEditorGUI implements Listener {
      * Creates the main editor GUI.
      */
     private Inventory createEditorGUI(DiscCategory category) {
-        Inventory gui = InventoryUtil.createInventory(null, 27, "§6§lEdit Category: " + category.getId());
+        Inventory gui = InventoryUtil.createGuiInventory(this, 27, "§6§lEdit Category: " + category.getId());
 
         // Display Name editor
         ItemStack displayNameItem = createEditorItem(Material.NAME_TAG,
@@ -108,13 +111,32 @@ public class CategoryEditorGUI implements Listener {
         if (!(event.getWhoClicked() instanceof Player)) return;
         Player player = (Player) event.getWhoClicked();
 
+        // Only handle clicks while one of our own inventories is open
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
+
+        // Cancel FIRST - our GUI must never hand out items, even if the
+        // session context is missing for some reason
+        if (event.getClickedInventory() != null && event.getClickedInventory().equals(event.getView().getTopInventory())) {
+            event.setCancelled(true);
+        } else {
+            // Cancel actions that move items from the player inventory into the GUI
+            if (event.isShiftClick()) {
+                event.setCancelled(true);
+            }
+            return; // Don't handle clicks in player's own inventory
+        }
+
         EditorContext context = activeEditors.get(player.getUniqueId());
         if (context == null) return;
 
-        String title = AdventureUtil.toLegacy(event.getView().title());
-        if (!title.startsWith("§6§lEdit Category:")) return;
-
-        event.setCancelled(true);
+        // Permission check - ensure player still has admin permission
+        if (!player.hasPermission("customjukebox.admin")) {
+            activeEditors.remove(player.getUniqueId());
+            MessageUtil.sendMessage(player, "&cYou no longer have permission to edit categories!");
+            // Close next tick - closeInventory() inside a click handler is undefined behavior
+            SchedulerUtil.runPlayerTask(plugin, player, player::closeInventory);
+            return;
+        }
 
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || clicked.getType() == Material.AIR) return;
@@ -124,6 +146,8 @@ public class CategoryEditorGUI implements Listener {
         // Handle clicks
         switch (slot) {
             case 11: // Edit Display Name
+                // Set the input mode before closing so the close handler keeps the session
+                chatInputMode.put(player.getUniqueId(), EditMode.DISPLAY_NAME);
                 player.closeInventory();
                 MessageUtil.sendMessage(player, "");
                 MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
@@ -134,10 +158,11 @@ public class CategoryEditorGUI implements Listener {
                 MessageUtil.sendMessage(player, "&8Colors: &7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
                 MessageUtil.sendMessage(player, "");
                 MessageUtil.sendMessage(player, "&7Type &ccancel &7to abort");
-                chatInputMode.put(player.getUniqueId(), EditMode.DISPLAY_NAME);
                 break;
 
             case 13: // Edit Description
+                // Set the input mode before closing so the close handler keeps the session
+                chatInputMode.put(player.getUniqueId(), EditMode.DESCRIPTION);
                 player.closeInventory();
                 MessageUtil.sendMessage(player, "");
                 MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
@@ -148,7 +173,6 @@ public class CategoryEditorGUI implements Listener {
                 MessageUtil.sendMessage(player, "&8Type 'none' to remove description");
                 MessageUtil.sendMessage(player, "");
                 MessageUtil.sendMessage(player, "&7Type &ccancel &7to abort");
-                chatInputMode.put(player.getUniqueId(), EditMode.DESCRIPTION);
                 break;
 
             case 15: // Save & Close
@@ -166,12 +190,32 @@ public class CategoryEditorGUI implements Listener {
         }
     }
 
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player)) return;
+        Player player = (Player) event.getPlayer();
+
+        // Only react to our own inventories; keep the context while navigating
+        // (closing caused by opening the next inventory, or during chat input)
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
+        if (event.getReason() == InventoryCloseEvent.Reason.OPEN_NEW) return;
+        if (chatInputMode.containsKey(player.getUniqueId())) return;
+
+        activeEditors.remove(player.getUniqueId());
+    }
+
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        InventoryUtil.cancelDragIntoGui(event, this);
+    }
+
     @EventHandler(priority = org.bukkit.event.EventPriority.LOWEST)
     public void onChat(AsyncChatEvent event) {
         if (event.isCancelled()) return;
 
         Player player = event.getPlayer();
-        EditMode mode = chatInputMode.get(player.getUniqueId());
+        // Remove atomically so rapid consecutive messages are not processed twice
+        EditMode mode = chatInputMode.remove(player.getUniqueId());
         EditorContext context = activeEditors.get(player.getUniqueId());
 
         if (mode == null || context == null) return;
@@ -181,7 +225,6 @@ public class CategoryEditorGUI implements Listener {
 
         if (input.equalsIgnoreCase("cancel")) {
             MessageUtil.sendMessage(player, "&cEdit cancelled.");
-            chatInputMode.remove(player.getUniqueId());
             SchedulerUtil.runPlayerTask(plugin, player, () -> {
                 DiscCategory category = plugin.getDiscManager().getCategory(context.categoryId);
                 if (category != null) {
@@ -196,11 +239,17 @@ public class CategoryEditorGUI implements Listener {
     }
 
     private void handleChatInput(Player player, EditorContext context, EditMode mode, String input) {
+        // Re-check permission - it may have been revoked mid-input
+        if (!player.hasPermission("customjukebox.admin")) {
+            MessageUtil.sendMessage(player, "&cYou no longer have permission to edit categories!");
+            activeEditors.remove(player.getUniqueId());
+            return;
+        }
+
         DiscCategory currentCategory = plugin.getDiscManager().getCategory(context.categoryId);
         if (currentCategory == null) {
             MessageUtil.sendMessage(player, "&cError: Category no longer exists!");
             activeEditors.remove(player.getUniqueId());
-            chatInputMode.remove(player.getUniqueId());
             return;
         }
 
@@ -231,7 +280,6 @@ public class CategoryEditorGUI implements Listener {
         }
 
         // Reopen GUI
-        chatInputMode.remove(player.getUniqueId());
         DiscCategory updatedCategory = plugin.getDiscManager().getCategory(context.categoryId);
         if (updatedCategory != null) {
             player.openInventory(createEditorGUI(updatedCategory));

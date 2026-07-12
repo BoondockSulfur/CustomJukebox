@@ -3,6 +3,7 @@ package de.boondocksulfur.customjukebox.listeners;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.GUIHolder;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
@@ -19,14 +20,16 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.Location;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,8 +48,9 @@ public class JukeboxListener implements Listener {
     // Track jukebox location for GUI selections (replaces deprecated FixedMetadataValue)
     private final Map<UUID, Location> playerJukeboxLocations = new ConcurrentHashMap<>();
 
-    // Track recent disc changes to prevent race conditions (using String keys for reliability)
-    private final Map<String, Long> recentDiscChanges = new HashMap<>();
+    // Track recent disc changes to prevent race conditions (using String keys for reliability;
+    // concurrent map because Folia region threads may touch different jukeboxes in parallel)
+    private final Map<String, Long> recentDiscChanges = new ConcurrentHashMap<>();
     private static final long DISC_CHANGE_COOLDOWN_MS = 500; // 500ms cooldown between disc changes
 
     // Constants for jukebox timing - improved with more attempts
@@ -101,7 +105,9 @@ public class JukeboxListener implements Listener {
             return;
         }
 
-        ItemStack item = player.getInventory().getItemInMainHand();
+        // The event fires once per hand - use the item of the hand that interacts,
+        // so discs held in the off-hand are recognized as well
+        ItemStack item = event.getItem();
         Jukebox jukebox = (Jukebox) block.getState();
 
         // Check if player is holding a disc
@@ -110,6 +116,9 @@ public class JukeboxListener implements Listener {
             return;
         }
 
+        // Empty-hand paths: only react to the main-hand event to avoid double handling
+        if (event.getHand() != EquipmentSlot.HAND) return;
+
         // Check if jukebox already has a disc (eject mode)
         ItemStack record = jukebox.getRecord();
         if (record != null && record.getType() != Material.AIR) {
@@ -117,8 +126,15 @@ public class JukeboxListener implements Listener {
             return;
         }
 
-        // No disc in hand and jukebox is empty - open GUI if enabled
+        // No disc in hand and jukebox is empty - open GUI if enabled.
+        // If the off-hand holds a disc, skip the GUI so the separate off-hand
+        // event can insert it (otherwise the disc would never be insertable,
+        // or vanilla would insert it behind the open GUI).
         if (plugin.getConfigManager().isGuiEnabled()) {
+            ItemStack offHand = player.getInventory().getItemInOffHand();
+            if (offHand != null && offHand.getType().name().contains("MUSIC_DISC")) {
+                return;
+            }
             event.setCancelled(true);
             openJukeboxGui(player, block);
         }
@@ -132,7 +148,10 @@ public class JukeboxListener implements Listener {
         // Check if jukebox already has a disc
         ItemStack record = jukebox.getRecord();
         if (record != null && record.getType() != Material.AIR) {
-            return; // Vanilla will eject the current disc
+            // Vanilla will eject the current disc - stop the custom sound too,
+            // otherwise it keeps playing over the now-empty jukebox
+            handleDiscEjection(block, jukebox);
+            return;
         }
 
         // Check for recent disc changes to prevent race conditions
@@ -275,6 +294,11 @@ public class JukeboxListener implements Listener {
     private void showCustomDiscTitle(Block block, CustomDisc disc) {
         if (block.getWorld() == null) return;
 
+        // Both announcements are configurable (playback.show-title / show-actionbar)
+        boolean showTitle = plugin.getConfigManager().isShowTitleEnabled();
+        boolean showActionbar = plugin.getConfigManager().isShowActionbarEnabled();
+        if (!showTitle && !showActionbar) return;
+
         // Create title and subtitle using Adventure API
         Component titleComponent = AdventureUtil.parseComponent(disc.getDisplayName());
         Component subtitleComponent = AdventureUtil.parseComponent("§7" + disc.getAuthor());
@@ -287,22 +311,26 @@ public class JukeboxListener implements Listener {
         int hearingRadius = plugin.getConfigManager().getJukeboxHearingRadius();
         for (Player player : block.getWorld().getPlayers()) {
             if (player.getLocation().distance(block.getLocation()) <= hearingRadius) {
-                // Show title for 3 seconds using Adventure API
-                Title title = Title.title(
-                    titleComponent,
-                    subtitleComponent,
-                    Title.Times.times(
-                        Duration.ofMillis(500),  // fade in: 10 ticks = 500ms
-                        Duration.ofMillis(3000), // stay: 60 ticks = 3000ms
-                        Duration.ofMillis(500)   // fade out: 10 ticks = 500ms
-                    )
-                );
-                player.showTitle(title);
+                if (showTitle) {
+                    // Show title for 3 seconds using Adventure API
+                    Title title = Title.title(
+                        titleComponent,
+                        subtitleComponent,
+                        Title.Times.times(
+                            Duration.ofMillis(500),  // fade in: 10 ticks = 500ms
+                            Duration.ofMillis(3000), // stay: 60 ticks = 3000ms
+                            Duration.ofMillis(500)   // fade out: 10 ticks = 500ms
+                        )
+                    );
+                    player.showTitle(title);
+                }
 
-                // Override vanilla actionbar with custom message (needs small delay)
-                SchedulerUtil.runPlayerTaskLater(plugin, player, () -> {
-                    player.sendActionBar(actionbarComponent);
-                }, 2L); // 2 ticks delay to override vanilla message
+                if (showActionbar) {
+                    // Override vanilla actionbar with custom message (needs small delay)
+                    SchedulerUtil.runPlayerTaskLater(plugin, player, () -> {
+                        player.sendActionBar(actionbarComponent);
+                    }, 2L); // 2 ticks delay to override vanilla message
+                }
 
                 if (plugin.getConfigManager().isDebug()) {
                     plugin.getLogger().info("Showing disc title to " + player.getName() +
@@ -408,7 +436,7 @@ public class JukeboxListener implements Listener {
             guiTitle = "Custom Jukebox"; // Fallback
         }
 
-        Inventory gui = InventoryUtil.createInventory(null, 54, guiTitle);
+        Inventory gui = InventoryUtil.createGuiInventory(this, 54, guiTitle);
 
         int slot = 0;
         for (CustomDisc disc : plugin.getDiscManager().getAllDiscs()) {
@@ -426,13 +454,8 @@ public class JukeboxListener implements Listener {
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player)) return;
 
-        String guiTitle = plugin.getLanguageManager().getMessage("gui-title");
-        if (guiTitle == null || guiTitle.isEmpty()) {
-            guiTitle = "Custom Jukebox"; // Fallback
-        }
-
-        String title = AdventureUtil.toLegacy(event.getView().title());
-        if (!title.equals(guiTitle)) return;
+        // Identify our GUI via its holder - title comparison breaks with hex colors
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
 
         event.setCancelled(true);
 
@@ -557,23 +580,75 @@ public class JukeboxListener implements Listener {
 
         Player player = (Player) event.getPlayer();
 
-        String guiTitle = plugin.getLanguageManager().getMessage("gui-title");
-        if (guiTitle == null || guiTitle.isEmpty()) {
-            guiTitle = "Custom Jukebox"; // Fallback
-        }
-
-        String title = AdventureUtil.toLegacy(event.getView().title());
-        if (!title.equals(guiTitle)) return;
+        // Identify our GUI via its holder - title comparison breaks with hex colors
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
 
         // Remove metadata if player closes GUI without selecting a disc
-        if (playerJukeboxLocations.containsKey(player.getUniqueId())) {
-            playerJukeboxLocations.remove(player.getUniqueId());
+        playerJukeboxLocations.remove(player.getUniqueId());
+    }
+
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        InventoryUtil.cancelDragIntoGui(event, this);
+    }
+
+    /**
+     * Keeps custom playback in sync with hoppers:
+     * - a hopper extracting the disc stops the custom sound
+     * - a hopper inserting a custom disc starts the custom sound
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void onHopperMoveDisc(InventoryMoveItemEvent event) {
+        // This event fires for every hopper transfer on the server - bail out
+        // cheaply unless a music disc moves and a jukebox inventory is involved
+        // (getType() avoids the block-state snapshot that getHolder() builds)
+        if (!event.getItem().getType().name().contains("MUSIC_DISC")) return;
+        if (event.getSource().getType() != org.bukkit.event.inventory.InventoryType.JUKEBOX
+            && event.getDestination().getType() != org.bukkit.event.inventory.InventoryType.JUKEBOX) {
+            return;
+        }
+
+        if (event.getSource().getHolder() instanceof Jukebox sourceJukebox) {
+            Location loc = sourceJukebox.getLocation();
+            if (!plugin.getPlaybackManager().isPlaying(loc)) return;
+
+            Block block = sourceJukebox.getBlock();
+            // Verify next tick: a higher-priority handler may still cancel the
+            // transfer, in which case the disc stays in and playback continues
+            SchedulerUtil.runLater(plugin, loc, () -> {
+                if (!plugin.getPlaybackManager().isPlaying(loc)) return;
+                if (block.getType() == Material.JUKEBOX) {
+                    ItemStack rec = ((Jukebox) block.getState()).getRecord();
+                    if (rec != null && rec.getType() != Material.AIR) {
+                        return; // Transfer was cancelled - disc is still in
+                    }
+                }
+                plugin.getPlaybackManager().stopPlayback(loc);
+            }, 1L);
+            return;
+        }
+
+        if (event.getDestination().getHolder() instanceof Jukebox destJukebox) {
+            CustomDisc disc = plugin.getDiscManager().getDiscFromItem(event.getItem());
+            if (disc == null) return;
+
+            Block block = destJukebox.getBlock();
+            // The disc lands in the jukebox after this event - verify next tick
+            SchedulerUtil.runLater(plugin, block.getLocation(), () -> {
+                if (block.getType() != Material.JUKEBOX) return;
+                Jukebox updated = (Jukebox) block.getState();
+                CustomDisc actual = plugin.getDiscManager().getDiscFromItem(updated.getRecord());
+                if (actual != null && !plugin.getPlaybackManager().isPlaying(block.getLocation())) {
+                    startCustomPlayback(block, actual);
+                }
+            }, 1L);
         }
     }
 
     /**
      * Handles player quit event to prevent memory leaks.
-     * Removes the player from all active playback listeners.
+     * Removes the player from all active playback listeners and clears
+     * every GUI/wizard session so chat input is not hijacked after rejoin.
      */
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
@@ -583,9 +658,15 @@ public class JukeboxListener implements Listener {
         plugin.getPlaybackManager().removePlayerFromAllPlaybacks(player);
 
         // Clean up any GUI metadata
-        if (playerJukeboxLocations.containsKey(player.getUniqueId())) {
-            playerJukeboxLocations.remove(player.getUniqueId());
-        }
+        playerJukeboxLocations.remove(player.getUniqueId());
+
+        // Clear all GUI and wizard sessions
+        plugin.getAdminGUI().cleanup(player);
+        plugin.getDiscEditorGUIv2().cleanup(player);
+        plugin.getPlaylistEditorGUI().cleanup(player);
+        plugin.getDiscCreationWizard().cleanup(player);
+        plugin.getCategoryEditorGUI().cancelSession(player.getUniqueId());
+        plugin.getCategoryCreationWizard().cancelSession(player.getUniqueId());
     }
 
 }

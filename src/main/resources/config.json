@@ -4,7 +4,8 @@
     "enabled": true,
     "language": "en",
     "enable-gui": true,
-    "debug": false
+    "debug": false,
+    "max-backups": 5
   },
   "discs": {
     "creeper-drops": true,
@@ -19,7 +20,9 @@
   "playback": {
     "volume": 4.0,
     "default-loop": false,
-    "jukebox-hearing-radius": 64
+    "jukebox-hearing-radius": 64,
+    "show-title": true,
+    "show-actionbar": true
   },
   "parrots": {
     "enable-dancing": true,

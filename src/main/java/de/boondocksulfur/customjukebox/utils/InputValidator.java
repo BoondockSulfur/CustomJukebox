@@ -1,5 +1,7 @@
 package de.boondocksulfur.customjukebox.utils;
 
+import java.util.regex.Pattern;
+
 /**
  * Validates user input for GUI chat interactions.
  * Provides centralized input length limits and validation methods.
@@ -17,6 +19,15 @@ public class InputValidator {
     public static final int MAX_PLAYLIST_NAME_LENGTH = 64;
     public static final int MAX_LORE_LINE_LENGTH = 256;
 
+    // IDs are referenced via space-separated command arguments, so they must not
+    // contain whitespace or exotic characters.
+    private static final Pattern ID_PATTERN = Pattern.compile("[A-Za-z0-9_-]+");
+
+    // Minecraft resource location: optional namespace ([a-z0-9_.-]) + key ([a-z0-9_./-]).
+    // Accepts both "namespace:key" and vanilla-style "music_disc.cat".
+    private static final Pattern SOUND_KEY_PATTERN =
+        Pattern.compile("(?:[a-z0-9_.\\-]+:)?[a-z0-9_./\\-]+");
+
     /**
      * Validates input length against a maximum.
      * @param input Input to validate
@@ -27,48 +38,52 @@ public class InputValidator {
         return input != null && input.length() <= maxLength;
     }
 
+    private static boolean isValidId(String id, int maxLength) {
+        return id != null && !id.isEmpty() && isValidLength(id, maxLength)
+            && ID_PATTERN.matcher(id).matches();
+    }
+
     /**
      * Validates disc ID format and length.
-     * Removed strict validation - now only checks length and non-empty.
+     * Allowed characters: letters, digits, underscore, hyphen (no whitespace).
      * @param id Disc ID to validate
      * @return true if valid, false otherwise
      */
     public static boolean isValidDiscId(String id) {
-        return id != null && !id.trim().isEmpty() && isValidLength(id, MAX_DISC_ID_LENGTH);
+        return isValidId(id, MAX_DISC_ID_LENGTH);
     }
 
     /**
      * Validates category ID format and length.
-     * Removed strict validation - now only checks length and non-empty.
+     * Allowed characters: letters, digits, underscore, hyphen (no whitespace).
      * @param id Category ID to validate
      * @return true if valid, false otherwise
      */
     public static boolean isValidCategoryId(String id) {
-        return id != null && !id.trim().isEmpty() && isValidLength(id, MAX_CATEGORY_ID_LENGTH);
+        return isValidId(id, MAX_CATEGORY_ID_LENGTH);
     }
 
     /**
      * Validates playlist ID format and length.
-     * Removed strict validation - now only checks length and non-empty.
+     * Allowed characters: letters, digits, underscore, hyphen (no whitespace).
      * @param id Playlist ID to validate
      * @return true if valid, false otherwise
      */
     public static boolean isValidPlaylistId(String id) {
-        return id != null && !id.trim().isEmpty() && isValidLength(id, MAX_PLAYLIST_ID_LENGTH);
+        return isValidId(id, MAX_PLAYLIST_ID_LENGTH);
     }
 
     /**
      * Validates sound key format and length.
-     * Relaxed validation - accepts both namespace:key and music_disc.name formats.
+     * Accepts both namespace:key and vanilla music_disc.name formats
+     * (lowercase resource-location characters only).
      * @param soundKey Sound key to validate
      * @return true if valid, false otherwise
      */
     public static boolean isValidSoundKey(String soundKey) {
-        if (!isValidLength(soundKey, MAX_SOUND_KEY_LENGTH)) {
-            return false;
-        }
-        // Accept both formats: namespace:key OR music_disc.name
-        return soundKey != null && !soundKey.trim().isEmpty();
+        return soundKey != null && !soundKey.isEmpty()
+            && isValidLength(soundKey, MAX_SOUND_KEY_LENGTH)
+            && SOUND_KEY_PATTERN.matcher(soundKey).matches();
     }
 
     /**

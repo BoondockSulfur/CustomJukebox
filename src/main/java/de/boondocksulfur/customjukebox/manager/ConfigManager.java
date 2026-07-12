@@ -5,9 +5,11 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.JsonConfigUtil;
 import org.bukkit.ChatColor;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.logging.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,17 +25,19 @@ import java.util.Date;
 public class ConfigManager {
 
     private static final int CONFIG_VERSION = 1; // Current config version for migration support
-    private static final int MAX_BACKUPS = 5; // Maximum number of backup files to keep
+    private static final int DEFAULT_MAX_BACKUPS = 5; // Default backups kept per file
+    private static final int MAX_BACKUPS_LIMIT = 100; // Hard cap to avoid runaway backup counts
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB max file size for config
 
     private final CustomJukebox plugin;
     private final Gson gson;
     private final File configFile;
-    private JsonObject config;
+    // volatile: read from region threads on Folia while /cjb reload may replace them
+    private volatile JsonObject config;
 
     // Mute state tracking (persisted in config.json)
-    private boolean isMuted = false;
-    private float volumeBeforeMute = 1.0f;
+    private volatile boolean isMuted = false;
+    private volatile float volumeBeforeMute = 1.0f;
 
     private void loadMuteState() {
         isMuted = getBoolean("playback.muted", false);
@@ -99,22 +103,37 @@ public class ConfigManager {
             try (Reader reader = new FileReader(configFile)) {
                 this.config = gson.fromJson(reader, JsonObject.class);
             }
+            if (config == null) {
+                config = new JsonObject();
+            }
+
+            // Merge in any keys added by newer plugin versions (e.g. new
+            // playback options) without overwriting the user's existing values
+            boolean addedKeys = mergeDefaults();
 
             // Check and log config version
             int fileVersion = getInt("version", 0);
+            boolean versionChanged = fileVersion != CONFIG_VERSION;
             if (fileVersion == 0) {
                 plugin.getLogger().warning("Config file has no version field - adding version " + CONFIG_VERSION);
-                config.addProperty("version", CONFIG_VERSION);
-                save();
             } else if (fileVersion < CONFIG_VERSION) {
                 plugin.getLogger().info("Config version " + fileVersion + " detected - current version is " + CONFIG_VERSION);
-                // Future: Add migration logic here
-                config.addProperty("version", CONFIG_VERSION);
-                save();
             } else if (fileVersion > CONFIG_VERSION) {
                 plugin.getLogger().warning("Config version " + fileVersion + " is newer than supported version " + CONFIG_VERSION + "!");
+                versionChanged = false; // don't downgrade a newer file
             } else {
                 plugin.getLogger().info("Loaded configuration from config.json (version " + fileVersion + ")");
+            }
+
+            if (versionChanged) {
+                config.addProperty("version", CONFIG_VERSION);
+            }
+            if (addedKeys) {
+                plugin.getLogger().info("Added missing config keys from defaults");
+            }
+            // Persist once if anything changed (new keys and/or version bump)
+            if (addedKeys || versionChanged) {
+                save();
             }
 
         } catch (Exception e) {
@@ -126,14 +145,41 @@ public class ConfigManager {
     }
 
     /**
+     * Merges keys from the bundled default config.json into the loaded config,
+     * adding any that a newer plugin version introduced. Existing user values
+     * are never overwritten.
+     * @return true if at least one key was added
+     */
+    private boolean mergeDefaults() {
+        try (InputStream defaultStream = plugin.getResource("config.json")) {
+            if (defaultStream == null) {
+                return false; // No bundled default (should not happen)
+            }
+            JsonObject defaults = gson.fromJson(
+                new InputStreamReader(defaultStream, StandardCharsets.UTF_8), JsonObject.class);
+            if (defaults == null) {
+                return false;
+            }
+            // config.json has no user-owned content maps - merge everything
+            return JsonConfigUtil.mergeDefaults(config, defaults, java.util.Collections.emptySet());
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to merge default config keys: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Reloads config.json from disk.
      */
     public void reload() {
         loadConfig();
+        loadMuteState();
     }
 
     /**
      * Saves current configuration to config.json.
+     * Writes to a temp file first and moves it atomically, so a crash or full
+     * disk during the write can never leave a truncated config.json behind.
      */
     public void save() {
         try {
@@ -143,8 +189,17 @@ public class ConfigManager {
             // Ensure version is always set
             config.addProperty("version", CONFIG_VERSION);
 
-            try (Writer writer = new FileWriter(configFile)) {
+            Path configPath = configFile.toPath();
+            Path tempPath = configPath.resolveSibling(configFile.getName() + ".tmp");
+
+            try (Writer writer = Files.newBufferedWriter(tempPath, StandardCharsets.UTF_8)) {
                 gson.toJson(config, writer);
+            }
+
+            try {
+                Files.move(tempPath, configPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tempPath, configPath, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Failed to save config.json", e);
@@ -152,13 +207,31 @@ public class ConfigManager {
     }
 
     /**
+     * Number of timestamped backups to keep per config file.
+     * Configurable via {@code settings.max-backups}; {@code 0} disables backups
+     * (and prunes existing ones). Clamped to [0, {@value #MAX_BACKUPS_LIMIT}].
+     * @return effective backup count
+     */
+    public int getMaxBackups() {
+        int max = getInt("settings.max-backups", DEFAULT_MAX_BACKUPS);
+        return Math.max(0, Math.min(MAX_BACKUPS_LIMIT, max));
+    }
+
+    /**
      * Creates a backup of the given file with timestamp.
-     * Automatically manages backup count (keeps only the last MAX_BACKUPS files).
+     * Automatically manages backup count (keeps only the last {@code getMaxBackups()} files).
      * @param file File to backup
      */
     private void createBackup(File file) {
         if (!file.exists()) {
             return; // No file to backup
+        }
+
+        int maxBackups = getMaxBackups();
+        if (maxBackups <= 0) {
+            // Backups disabled - also prune any that already exist
+            cleanupOldBackups(file, 0);
+            return;
         }
 
         try {
@@ -171,11 +244,8 @@ public class ConfigManager {
             // Copy file to backup
             Files.copy(file.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
-            // Debug logging removed to prevent NullPointerException during initialization
-            // plugin.getLogger().info("Created backup: " + backupName);
-
             // Clean up old backups
-            cleanupOldBackups(file);
+            cleanupOldBackups(file, maxBackups);
 
         } catch (IOException e) {
             plugin.getLogger().warning("Failed to create backup for " + file.getName() + ": " + e.getMessage());
@@ -183,10 +253,11 @@ public class ConfigManager {
     }
 
     /**
-     * Removes old backup files, keeping only the most recent MAX_BACKUPS files.
+     * Removes old backup files, keeping only the most recent {@code maxBackups} files.
      * @param originalFile The original file (used to find related backups)
+     * @param maxBackups Number of backups to keep (0 deletes all)
      */
-    private void cleanupOldBackups(File originalFile) {
+    private void cleanupOldBackups(File originalFile, int maxBackups) {
         File parentDir = originalFile.getParentFile();
         if (parentDir == null || !parentDir.exists()) {
             return;
@@ -198,7 +269,7 @@ public class ConfigManager {
             name.startsWith(baseName + "_backup_") && name.endsWith(".json")
         );
 
-        if (backupFiles == null || backupFiles.length <= MAX_BACKUPS) {
+        if (backupFiles == null || backupFiles.length <= maxBackups) {
             return; // No cleanup needed
         }
 
@@ -208,12 +279,9 @@ public class ConfigManager {
         );
 
         // Delete oldest backups
-        int toDelete = backupFiles.length - MAX_BACKUPS;
+        int toDelete = backupFiles.length - maxBackups;
         for (int i = 0; i < toDelete; i++) {
-            if (backupFiles[i].delete()) {
-                // Debug logging removed to prevent NullPointerException during initialization
-                // plugin.getLogger().info("Deleted old backup: " + backupFiles[i].getName());
-            }
+            backupFiles[i].delete();
         }
     }
 
@@ -305,6 +373,22 @@ public class ConfigManager {
     public int getJukeboxHearingRadius() {
         int radius = getInt("playback.jukebox-hearing-radius", 64);
         return Math.max(1, Math.min(512, radius));
+    }
+
+    /**
+     * Whether the "Now Playing" title (center of the screen) is shown to nearby
+     * players when a custom disc starts.
+     */
+    public boolean isShowTitleEnabled() {
+        return getBoolean("playback.show-title", true);
+    }
+
+    /**
+     * Whether the "Now Playing" actionbar message is shown to nearby players
+     * when a custom disc starts.
+     */
+    public boolean isShowActionbarEnabled() {
+        return getBoolean("playback.show-actionbar", true);
     }
 
     /**

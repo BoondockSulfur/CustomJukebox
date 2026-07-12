@@ -1,11 +1,14 @@
 package de.boondocksulfur.customjukebox.utils;
 
 import net.kyori.adventure.text.Component;
+import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Utility class for ItemStack and ItemMeta operations with Adventure API.
@@ -16,6 +19,37 @@ import java.util.List;
  * @since 2.1.0
  */
 public class ItemUtil {
+
+    /**
+     * PDC key that stores the disc ID on custom disc items.
+     * Makes discs uniquely identifiable even if two discs share the same
+     * material and CustomModelData.
+     */
+    public static final NamespacedKey DISC_ID_KEY =
+        Objects.requireNonNull(NamespacedKey.fromString("customjukebox:disc_id"));
+
+    /**
+     * PDC key that stores the target disc ID on fragment items.
+     */
+    public static final NamespacedKey FRAGMENT_DISC_ID_KEY =
+        Objects.requireNonNull(NamespacedKey.fromString("customjukebox:fragment_disc_id"));
+
+    /**
+     * Reads a string from an item's PersistentDataContainer.
+     * @param item Item to read from
+     * @param key PDC key
+     * @return Stored value, or null if absent
+     */
+    public static String getPdcString(ItemStack item, NamespacedKey key) {
+        if (item == null || !item.hasItemMeta()) {
+            return null;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return null;
+        }
+        return meta.getPersistentDataContainer().get(key, PersistentDataType.STRING);
+    }
 
     /**
      * Sets display name on ItemMeta using Adventure API.

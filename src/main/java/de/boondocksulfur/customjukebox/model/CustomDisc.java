@@ -1,12 +1,14 @@
 package de.boondocksulfur.customjukebox.model;
 
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.components.CustomModelDataComponent;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -146,6 +148,10 @@ public class CustomDisc {
             cmd.setFloats(List.of((float) customModelData));
             meta.setCustomModelDataComponent(cmd);
 
+            // Store the disc ID so items stay uniquely identifiable even when
+            // two discs share the same material and CustomModelData
+            meta.getPersistentDataContainer().set(ItemUtil.DISC_ID_KEY, PersistentDataType.STRING, id);
+
             // Hide vanilla item information
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 
@@ -172,6 +178,14 @@ public class CustomDisc {
             return false;
         }
 
+        // Prefer the PDC disc ID - it is unique even when two discs share the
+        // same material and CustomModelData
+        String pdcId = meta.getPersistentDataContainer().get(ItemUtil.DISC_ID_KEY, PersistentDataType.STRING);
+        if (pdcId != null) {
+            return id.equals(pdcId);
+        }
+
+        // Legacy items (created before the PDC tag existed): match by CustomModelData.
         // getCustomModelDataComponent() returns an empty component if none is set,
         // so the isEmpty() check below covers items without custom model data.
         // (hasCustomModelDataComponent() is not available in the 1.21.4 API.)

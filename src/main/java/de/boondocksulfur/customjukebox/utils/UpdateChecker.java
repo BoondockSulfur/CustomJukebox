@@ -22,9 +22,10 @@ public class UpdateChecker {
 
     private final CustomJukebox plugin;
     private final String projectId;
-    private String latestVersion = null;
-    private String downloadUrl = null;
-    private boolean updateAvailable = false;
+    // volatile: written by the async check, read from event threads
+    private volatile String latestVersion = null;
+    private volatile String downloadUrl = null;
+    private volatile boolean updateAvailable = false;
 
     public UpdateChecker(CustomJukebox plugin, String projectId) {
         this.plugin = plugin;

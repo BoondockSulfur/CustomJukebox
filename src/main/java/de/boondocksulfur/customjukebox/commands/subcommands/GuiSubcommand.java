@@ -3,7 +3,7 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
-import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.GUIHolder;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -71,7 +71,9 @@ public class GuiSubcommand implements SubCommand, Listener {
             guiTitle = "Custom Jukebox"; // Fallback
         }
 
-        Inventory gui = InventoryUtil.createInventory(null, 54, guiTitle);
+        // Owned by the JukeboxListener so its click handler cancels clicks and
+        // handles disc selection for command-opened GUIs as well
+        Inventory gui = InventoryUtil.createGuiInventory(plugin.getJukeboxListener(), 54, guiTitle);
 
         // Add discs
         int slot = 0;
@@ -104,19 +106,18 @@ public class GuiSubcommand implements SubCommand, Listener {
         if (!(event.getWhoClicked() instanceof Player)) return;
         Player player = (Player) event.getWhoClicked();
 
-        // Check if it's the main GUI
-        String title = AdventureUtil.toLegacy(event.getView().title());
-        String guiTitle = plugin.getLanguageManager().getMessage("gui-title");
-        if (!title.equals(guiTitle) && !title.equals("Custom Jukebox")) return;
+        // Check if it's the main disc GUI (owned by the JukeboxListener)
+        if (!GUIHolder.isOwnedBy(event.getInventory(), plugin.getJukeboxListener())) return;
 
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || clicked.getType() == Material.AIR) return;
 
-        // Check if admin button was clicked
+        // Check if admin button was clicked (cancellation is done by JukeboxListener)
         if (clicked.getType() == Material.NETHER_STAR && event.getSlot() == 49) {
             if (player.hasPermission("customjukebox.admin")) {
                 event.setCancelled(true);
-                player.closeInventory();
+                // openInventory replaces the current view - no closeInventory
+                // inside the click handler (undefined behavior per Bukkit docs)
                 plugin.getAdminGUI().openMainMenu(player);
             }
         }

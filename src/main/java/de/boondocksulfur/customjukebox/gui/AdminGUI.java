@@ -5,6 +5,8 @@ import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.GUIHolder;
+import de.boondocksulfur.customjukebox.utils.InputValidator;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -14,8 +16,10 @@ import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -29,9 +33,12 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class AdminGUI implements Listener {
 
+    private static final long DELETE_CONFIRM_TIMEOUT_MILLIS = 10_000L;
+
     private final CustomJukebox plugin;
     private final Map<UUID, GUIContext> activeGUIs = new ConcurrentHashMap<>();
     private final Map<UUID, String> chatInputMode = new ConcurrentHashMap<>();
+    private final Map<UUID, PendingDelete> pendingDeletes = new ConcurrentHashMap<>();
 
     public AdminGUI(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -41,7 +48,7 @@ public class AdminGUI implements Listener {
      * Opens the main admin menu.
      */
     public void openMainMenu(Player player) {
-        Inventory gui = InventoryUtil.createInventory(null, 27, "§6§lAdmin §8» §eMain Menu");
+        Inventory gui = InventoryUtil.createGuiInventory(this, 27, "§6§lAdmin §8» §eMain Menu");
 
         // Disc Management
         ItemStack discMgmt = createMenuItem(Material.MUSIC_DISC_13, "§6§lDisc Management",
@@ -80,7 +87,7 @@ public class AdminGUI implements Listener {
      * Opens the disc management menu.
      */
     public void openDiscManagement(Player player) {
-        Inventory gui = InventoryUtil.createInventory(null, 54, "§6§lAdmin §8» §eDisc Management");
+        Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§6§lAdmin §8» §eDisc Management");
 
         // Add "Create New Disc" button
         ItemStack createNew = createMenuItem(Material.EMERALD, "§a§l+ Create New Disc",
@@ -121,7 +128,7 @@ public class AdminGUI implements Listener {
      * Opens the playlist management menu.
      */
     private void openPlaylistManagement(Player player) {
-        Inventory gui = InventoryUtil.createInventory(null, 54, "§b§lAdmin §8» §ePlaylist Management");
+        Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§b§lAdmin §8» §ePlaylist Management");
 
         // Add "Create New Playlist" button
         ItemStack createNew = createMenuItem(Material.EMERALD, "§a§l+ Create New Playlist",
@@ -159,7 +166,7 @@ public class AdminGUI implements Listener {
      * Opens the category management menu.
      */
     public void openCategoryManagement(Player player) {
-        Inventory gui = InventoryUtil.createInventory(null, 54, "§d§lAdmin §8» §eCategory Management");
+        Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§d§lAdmin §8» §eCategory Management");
 
         // Add "Create New Category" button
         ItemStack createNew = createMenuItem(Material.EMERALD, "§a§l+ Create New Category",
@@ -199,26 +206,31 @@ public class AdminGUI implements Listener {
         if (!(event.getWhoClicked() instanceof Player)) return;
         Player player = (Player) event.getWhoClicked();
 
+        // Only handle clicks while one of our own inventories is open
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
+
+        // Cancel FIRST - our GUI must never hand out items, even if the
+        // session context is missing for some reason
+        if (event.getClickedInventory() != null && event.getClickedInventory().equals(event.getView().getTopInventory())) {
+            event.setCancelled(true);
+        } else {
+            // Cancel actions that move items from the player inventory into the GUI
+            if (event.isShiftClick() || event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
+                event.setCancelled(true);
+            }
+            return; // Don't handle clicks in player's own inventory
+        }
+
         GUIContext context = activeGUIs.get(player.getUniqueId());
         if (context == null) return;
 
         // Permission check - ensure player still has admin permission
         if (!player.hasPermission("customjukebox.admin")) {
-            player.closeInventory();
             activeGUIs.remove(player.getUniqueId());
             MessageUtil.sendMessage(player, "&cYou no longer have permission to use the admin panel!");
+            // Close next tick - closeInventory() inside a click handler is undefined behavior
+            SchedulerUtil.runPlayerTask(plugin, player, player::closeInventory);
             return;
-        }
-
-        // Only cancel if clicking in the top inventory (the GUI)
-        if (event.getClickedInventory() != null && event.getClickedInventory().equals(event.getView().getTopInventory())) {
-            event.setCancelled(true);
-        } else {
-            // Allow shift-click from player inventory to be cancelled (prevents moving items to GUI)
-            if (event.isShiftClick()) {
-                event.setCancelled(true);
-            }
-            return; // Don't handle clicks in player's own inventory
         }
 
         ItemStack clicked = event.getCurrentItem();
@@ -318,12 +330,15 @@ public class AdminGUI implements Listener {
             if (playlist == null) return;
 
             if (rightClick) {
-                // Delete playlist
+                // Delete playlist (needs a second right-click to confirm)
+                if (!consumePendingDelete(player, "playlist:" + playlistId)) return;
                 boolean success = plugin.getDiscManager().deletePlaylist(playlistId);
                 if (success) {
                     MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("playlist-deleted")
                         .replace("{playlist}", playlistId));
                     openPlaylistManagement(player); // Refresh
+                } else {
+                    MessageUtil.sendMessage(player, "&cFailed to delete playlist!");
                 }
             } else {
                 // Edit playlist - openEditor handles GUI opening
@@ -355,7 +370,8 @@ public class AdminGUI implements Listener {
             if (categoryId == null) return;
 
             if (rightClick) {
-                // Delete category
+                // Delete category (needs a second right-click to confirm)
+                if (!consumePendingDelete(player, "category:" + categoryId)) return;
                 boolean success = plugin.getDiscManager().deleteCategory(categoryId);
                 if (success) {
                     MessageUtil.sendMessage(player, "&aCategory deleted: &e" + categoryId);
@@ -394,13 +410,24 @@ public class AdminGUI implements Listener {
         if (!(event.getPlayer() instanceof Player)) return;
         Player player = (Player) event.getPlayer();
 
-        // Keep GUI context for potential re-opening
-        // Only remove on certain conditions
+        // Only react to our own inventories; keep the context while navigating
+        // between our menus (closing is caused by opening the next inventory)
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
+        if (event.getReason() == InventoryCloseEvent.Reason.OPEN_NEW) return;
+
+        activeGUIs.remove(player.getUniqueId());
+        pendingDeletes.remove(player.getUniqueId());
+    }
+
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        InventoryUtil.cancelDragIntoGui(event, this);
     }
 
     public void cleanup(Player player) {
         activeGUIs.remove(player.getUniqueId());
         chatInputMode.remove(player.getUniqueId());
+        pendingDeletes.remove(player.getUniqueId());
     }
 
     @EventHandler(priority = org.bukkit.event.EventPriority.LOWEST)
@@ -408,7 +435,8 @@ public class AdminGUI implements Listener {
         if (event.isCancelled()) return; // Already handled by another GUI
 
         Player player = event.getPlayer();
-        String mode = chatInputMode.get(player.getUniqueId());
+        // Remove atomically so rapid consecutive messages are not processed twice
+        String mode = chatInputMode.remove(player.getUniqueId());
 
         if (mode == null) return;
 
@@ -417,7 +445,6 @@ public class AdminGUI implements Listener {
 
         if (input.equalsIgnoreCase("cancel")) {
             MessageUtil.sendMessage(player, "&cInput cancelled");
-            chatInputMode.remove(player.getUniqueId());
 
             // Reopen playlist management
             SchedulerUtil.runPlayerTask(plugin, player, () -> openPlaylistManagement(player));
@@ -428,8 +455,21 @@ public class AdminGUI implements Listener {
     }
 
     private void handleChatInput(Player player, String mode, String input) {
+        // Re-check permission - it may have been revoked mid-input
+        if (!player.hasPermission("customjukebox.admin")) {
+            MessageUtil.sendMessage(player, "&cYou no longer have permission to use the admin panel!");
+            return;
+        }
+
         if (mode.equals("createPlaylist")) {
             String playlistId = input.toLowerCase().replace(" ", "_");
+
+            if (!InputValidator.isValidPlaylistId(playlistId)) {
+                MessageUtil.sendMessage(player, "&cInvalid playlist ID! Use letters, numbers, - and _ (max "
+                    + InputValidator.MAX_PLAYLIST_ID_LENGTH + " characters)");
+                SchedulerUtil.runPlayerTaskLater(plugin, player, () -> openPlaylistManagement(player), 3L);
+                return;
+            }
 
             // Create empty playlist with default name
             boolean success = plugin.getDiscManager().createPlaylist(playlistId, input, "Created via GUI");
@@ -441,11 +481,28 @@ public class AdminGUI implements Listener {
                 MessageUtil.sendMessage(player, "&cPlaylist ID already exists!");
             }
 
-            chatInputMode.remove(player.getUniqueId());
-
             // Reopen playlist management
             SchedulerUtil.runPlayerTaskLater(plugin, player, () -> openPlaylistManagement(player), 3L);
         }
+    }
+
+    /**
+     * Two-step delete confirmation: the first right-click arms the deletion,
+     * a second right-click on the same entry within the timeout confirms it.
+     * @return true if the deletion is confirmed and should be executed
+     */
+    private boolean consumePendingDelete(Player player, String deleteKey) {
+        PendingDelete pending = pendingDeletes.get(player.getUniqueId());
+        long now = System.currentTimeMillis();
+
+        if (pending != null && pending.key.equals(deleteKey) && now < pending.expiresAt) {
+            pendingDeletes.remove(player.getUniqueId());
+            return true;
+        }
+
+        pendingDeletes.put(player.getUniqueId(), new PendingDelete(deleteKey, now + DELETE_CONFIRM_TIMEOUT_MILLIS));
+        MessageUtil.sendMessage(player, "&e⚠ Right-click again within " + (DELETE_CONFIRM_TIMEOUT_MILLIS / 1000) + " seconds to confirm deletion!");
+        return false;
     }
 
     // Helper methods
@@ -482,5 +539,15 @@ public class AdminGUI implements Listener {
         DISC_MANAGEMENT,
         PLAYLIST_MANAGEMENT,
         CATEGORY_MANAGEMENT
+    }
+
+    private static class PendingDelete {
+        final String key;
+        final long expiresAt;
+
+        PendingDelete(String key, long expiresAt) {
+            this.key = key;
+            this.expiresAt = expiresAt;
+        }
     }
 }

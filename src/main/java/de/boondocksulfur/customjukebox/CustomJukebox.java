@@ -14,6 +14,7 @@ import de.boondocksulfur.customjukebox.manager.ConfigManager;
 import de.boondocksulfur.customjukebox.manager.PlaybackManager;
 import de.boondocksulfur.customjukebox.manager.LanguageManager;
 import de.boondocksulfur.customjukebox.manager.IntegrationManager;
+import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import de.boondocksulfur.customjukebox.utils.UpdateChecker;
 import org.bstats.bukkit.Metrics;
 import org.bstats.charts.SimplePie;
@@ -34,6 +35,7 @@ public class CustomJukebox extends JavaPlugin {
     private DiscCreationWizard discCreationWizard;
     private CategoryCreationWizard categoryCreationWizard;
     private CategoryEditorGUI categoryEditorGUI;
+    private JukeboxListener jukeboxListener;
     private UpdateChecker updateChecker;
 
     @Override
@@ -104,14 +106,19 @@ public class CustomJukebox extends JavaPlugin {
             playbackManager.stopAllPlaybacks();
         }
 
-        // Cancel any pending scheduler tasks to prevent async operations after disable
-        getServer().getScheduler().cancelTasks(this);
+        // Cancel any pending scheduler tasks to prevent async operations after disable.
+        // The Bukkit scheduler API throws UnsupportedOperationException on Folia -
+        // there, Folia retires the plugin's scheduled tasks itself on disable.
+        if (!SchedulerUtil.isFolia()) {
+            getServer().getScheduler().cancelTasks(this);
+        }
 
         getLogger().info("CustomJukebox has been disabled!");
     }
 
     private void registerListeners() {
-        getServer().getPluginManager().registerEvents(new JukeboxListener(this), this);
+        jukeboxListener = new JukeboxListener(this);
+        getServer().getPluginManager().registerEvents(jukeboxListener, this);
         getServer().getPluginManager().registerEvents(new JukeboxBreakListener(this), this);
         getServer().getPluginManager().registerEvents(new DiscDropListener(this), this);
         getServer().getPluginManager().registerEvents(new ParrotDanceListener(this), this);
@@ -238,6 +245,10 @@ public class CustomJukebox extends JavaPlugin {
 
     public CategoryEditorGUI getCategoryEditorGUI() {
         return categoryEditorGUI;
+    }
+
+    public JukeboxListener getJukeboxListener() {
+        return jukeboxListener;
     }
 
     public UpdateChecker getUpdateChecker() {

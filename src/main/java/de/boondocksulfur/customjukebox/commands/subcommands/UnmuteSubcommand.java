@@ -8,6 +8,7 @@ import org.bukkit.command.CommandSender;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -49,7 +50,7 @@ public class UnmuteSubcommand implements SubCommand {
             // Not muted
             float currentVolume = plugin.getConfigManager().getVolume();
             MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("unmute-not-muted")
-                .replace("{volume}", String.format("%.2f", currentVolume)));
+                .replace("{volume}", String.format(Locale.ROOT, "%.2f", currentVolume)));
             return true;
         }
 
@@ -62,7 +63,7 @@ public class UnmuteSubcommand implements SubCommand {
         if (!success) {
             // This shouldn't happen, but just in case
             MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("unmute-not-muted")
-                .replace("{volume}", String.format("%.2f", plugin.getConfigManager().getVolume())));
+                .replace("{volume}", String.format(Locale.ROOT, "%.2f", plugin.getConfigManager().getVolume())));
             return true;
         }
 
@@ -82,7 +83,7 @@ public class UnmuteSubcommand implements SubCommand {
 
         // Send success message
         String message = plugin.getLanguageManager().getMessage("unmute-success")
-            .replace("{volume}", String.format("%.2f", restoredVolume));
+            .replace("{volume}", String.format(Locale.ROOT, "%.2f", restoredVolume));
 
         if (restart) {
             message += " " + plugin.getLanguageManager().getMessage("volume-restarted");

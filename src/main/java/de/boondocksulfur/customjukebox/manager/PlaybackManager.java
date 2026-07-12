@@ -11,7 +11,6 @@ import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import org.bukkit.Location;
 import org.bukkit.SoundCategory;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,8 +29,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PlaybackManager {
 
     private final CustomJukebox plugin;
-    private final Map<String, JukeboxPlayback> activePlaybacks; // Location key -> Playback (thread-safe)
-    private final Map<String, BukkitTask> autoStopTasks;         // Location key -> Stop task (thread-safe)
+    private final Map<String, JukeboxPlayback> activePlaybacks;          // Location key -> Playback (thread-safe)
+    private final Map<String, SchedulerUtil.TaskHandle> autoStopTasks;   // Location key -> Stop task (thread-safe)
 
     // Playlist queue management
     private final Map<String, PlaylistQueue> playlistQueues;     // Location key -> Queue (thread-safe)
@@ -39,6 +38,10 @@ public class PlaybackManager {
     // Sound configuration
     private static final SoundCategory SOUND_CATEGORY = SoundCategory.RECORDS;
     private static final float DEFAULT_PITCH = 1.0f;
+
+    // Discs without a configured duration cannot be auto-stopped at track end;
+    // clean up their tracking entry after this fallback period to avoid leaks.
+    private static final int NO_DURATION_CLEANUP_TICKS = 20 * 60 * 60; // 1 hour
 
     /**
      * Internal class to manage playlist queues.
@@ -187,10 +190,17 @@ public class PlaybackManager {
         // Schedule auto-stop or loop if disc has a duration
         if (disc.getDurationTicks() > 0) {
             if (loop) {
-                scheduleLoop(location, disc.getDurationTicks());
+                scheduleLoop(location, playback, disc.getDurationTicks());
             } else {
-                scheduleAutoStop(location, disc.getDurationTicks());
+                scheduleAutoStop(location, playback, disc.getDurationTicks());
             }
+        } else {
+            if (loop) {
+                plugin.getLogger().warning("Disc '" + disc.getId() + "' has no duration - loop is ignored");
+            }
+            // No duration: the tracking entry would otherwise live forever
+            // (e.g. /cjb play at a player position has no eject to stop it)
+            scheduleTrackingCleanup(location, playback);
         }
 
         if (plugin.getConfigManager().isDebug()) {
@@ -227,8 +237,8 @@ public class PlaybackManager {
             return; // No active playback at this location
         }
 
-        // Cancel auto-stop task (null-safe for Folia)
-        BukkitTask task = autoStopTasks.remove(locationKey);
+        // Cancel auto-stop task
+        SchedulerUtil.TaskHandle task = autoStopTasks.remove(locationKey);
         SchedulerUtil.cancelTask(task);
 
         // Stop sound for all listeners
@@ -333,8 +343,9 @@ public class PlaybackManager {
             boolean loop = playback.isLoop();
             PlaybackRange range = playback.getRange();
 
-            // Stop current playback
-            stopPlayback(location);
+            // Stop current playback but keep the playlist queue - a running
+            // playlist must survive e.g. /cjb mute + unmute or volume restarts
+            stopPlayback(location, false);
 
             // Restart with same settings
             startPlayback(location, disc, loop, range);
@@ -525,20 +536,23 @@ public class PlaybackManager {
     /**
      * Schedules an auto-stop task for a playback.
      * Folia-compatible: Uses SchedulerUtil for cross-platform scheduling.
+     * The task verifies it still belongs to the same playback session when it
+     * fires, so a stale task can never stop a newer playback at this location.
      * @param location Jukebox location
+     * @param expectedPlayback Playback session this task belongs to
      * @param durationTicks Duration in ticks
      */
-    private void scheduleAutoStop(Location location, int durationTicks) {
+    private void scheduleAutoStop(Location location, JukeboxPlayback expectedPlayback, int durationTicks) {
         String locationKey = JukeboxPlayback.getLocationKey(location);
 
-        BukkitTask task = SchedulerUtil.runLater(plugin, location, () -> {
+        SchedulerUtil.TaskHandle task = SchedulerUtil.runLater(plugin, location, () -> {
             if (plugin.getConfigManager().isDebug()) {
                 plugin.getLogger().info("[AutoStop] Task triggered for " + locationKey +
                     " after " + durationTicks + " ticks");
             }
 
             JukeboxPlayback playback = activePlaybacks.get(locationKey);
-            if (playback != null && !playback.isStopped()) {
+            if (playback != null && playback == expectedPlayback && !playback.isStopped()) {
                 if (plugin.getConfigManager().isDebug()) {
                     plugin.getLogger().info("[AutoStop] Playback active, stopping: " +
                         playback.getDisc().getId());
@@ -559,12 +573,11 @@ public class PlaybackManager {
                 }
             } else {
                 if (plugin.getConfigManager().isDebug()) {
-                    plugin.getLogger().info("[AutoStop] No active playback found at " + locationKey);
+                    plugin.getLogger().info("[AutoStop] No matching playback found at " + locationKey);
                 }
             }
         }, durationTicks);
 
-        // Only store task if not null (Folia returns null, which is fine)
         if (task != null) {
             autoStopTasks.put(locationKey, task);
         }
@@ -576,25 +589,52 @@ public class PlaybackManager {
     }
 
     /**
+     * Schedules a bookkeeping-only cleanup for playbacks without a configured
+     * duration. The client-side sound ends on its own long before this fires;
+     * the task merely drops the stale tracking entry - it must NOT trigger
+     * stop-sound packets, stop events, or playlist progression.
+     * @param location Jukebox location
+     * @param expectedPlayback Playback session this task belongs to
+     */
+    private void scheduleTrackingCleanup(Location location, JukeboxPlayback expectedPlayback) {
+        String locationKey = JukeboxPlayback.getLocationKey(location);
+
+        SchedulerUtil.TaskHandle task = SchedulerUtil.runLater(plugin, location, () -> {
+            if (activePlaybacks.get(locationKey) == expectedPlayback) {
+                expectedPlayback.setStopped(true);
+                activePlaybacks.remove(locationKey);
+                autoStopTasks.remove(locationKey);
+                if (plugin.getConfigManager().isDebug()) {
+                    plugin.getLogger().info("[Cleanup] Removed stale no-duration playback entry at " + locationKey);
+                }
+            }
+        }, NO_DURATION_CLEANUP_TICKS);
+
+        if (task != null) {
+            autoStopTasks.put(locationKey, task);
+        }
+    }
+
+    /**
      * Schedules a loop task for a playback.
      * Restarts the sound after the duration is reached.
      * Folia-compatible: Uses SchedulerUtil for cross-platform scheduling.
      * @param location Jukebox location
      * @param durationTicks Duration in ticks
      */
-    private void scheduleLoop(Location location, int durationTicks) {
+    private void scheduleLoop(Location location, JukeboxPlayback expectedPlayback, int durationTicks) {
         String locationKey = JukeboxPlayback.getLocationKey(location);
 
-        BukkitTask task = SchedulerUtil.runLater(plugin, location, () -> {
+        SchedulerUtil.TaskHandle task = SchedulerUtil.runLater(plugin, location, () -> {
             JukeboxPlayback playback = getPlayback(location);
-            if (playback != null && !playback.isStopped() && playback.isLoop()) {
+            // Identity check: a stale loop task must never restart a newer playback
+            if (playback != null && playback == expectedPlayback && !playback.isStopped() && playback.isLoop()) {
                 // Save settings before stopping
                 CustomDisc disc = playback.getDisc();
                 PlaybackRange range = playback.getRange();
 
                 // Cancel the old task FIRST (before removing playback)
-                // Null-safe for Folia compatibility
-                BukkitTask oldTask = autoStopTasks.remove(locationKey);
+                SchedulerUtil.TaskHandle oldTask = autoStopTasks.remove(locationKey);
                 SchedulerUtil.cancelTask(oldTask);
 
                 // Stop sound for current listeners
@@ -614,7 +654,6 @@ public class PlaybackManager {
             }
         }, durationTicks);
 
-        // Only store task if not null (Folia returns null, which is fine)
         if (task != null) {
             autoStopTasks.put(locationKey, task);
         }
@@ -694,7 +733,9 @@ public class PlaybackManager {
             return; // No playlist active
         }
 
-        plugin.getLogger().info("[Playlist] Progressing at " + locationKey);
+        if (plugin.getConfigManager().isDebug()) {
+            plugin.getLogger().info("[Playlist] Progressing at " + locationKey);
+        }
 
         // Peek at next disc without advancing the index yet
         if (queue.hasNext()) {
@@ -703,8 +744,10 @@ public class PlaybackManager {
                 // Only advance the index after successful peek
                 queue.next(); // Now safe to advance
                 // Play next disc in queue using the queue's stored range
-                plugin.getLogger().info("[Playlist] Playing next: " + nextDisc.getId() +
-                    " (" + (queue.getCurrentIndex() + 1) + "/" + queue.getSize() + ")");
+                if (plugin.getConfigManager().isDebug()) {
+                    plugin.getLogger().info("[Playlist] Playing next: " + nextDisc.getId() +
+                        " (" + (queue.getCurrentIndex() + 1) + "/" + queue.getSize() + ")");
+                }
 
                 startPlayback(location, nextDisc, false, queue.range);
             } else {
@@ -713,7 +756,9 @@ public class PlaybackManager {
         } else {
             // Playlist finished
             playlistQueues.remove(locationKey);
-            plugin.getLogger().info("[Playlist] Finished at " + locationKey);
+            if (plugin.getConfigManager().isDebug()) {
+                plugin.getLogger().info("[Playlist] Finished at " + locationKey);
+            }
         }
     }
 

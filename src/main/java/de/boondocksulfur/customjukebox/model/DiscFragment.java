@@ -1,11 +1,13 @@
 package de.boondocksulfur.customjukebox.model;
 
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.components.CustomModelDataComponent;
+import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,6 +77,9 @@ public class DiscFragment {
             cmd.setFloats(List.of((float) customModelData));
             meta.setCustomModelDataComponent(cmd);
 
+            // Store the target disc ID so fragments stay uniquely identifiable
+            meta.getPersistentDataContainer().set(ItemUtil.FRAGMENT_DISC_ID_KEY, PersistentDataType.STRING, discId);
+
             item.setItemMeta(meta);
         }
 
@@ -96,6 +101,13 @@ public class DiscFragment {
             return false;
         }
 
+        // Prefer the PDC disc ID - unique even with duplicate CustomModelData
+        String pdcId = meta.getPersistentDataContainer().get(ItemUtil.FRAGMENT_DISC_ID_KEY, PersistentDataType.STRING);
+        if (pdcId != null) {
+            return discId.equals(pdcId);
+        }
+
+        // Legacy items (created before the PDC tag existed): match by CustomModelData.
         // getCustomModelDataComponent() returns an empty component if none is set,
         // so the isEmpty() check below covers items without custom model data.
         // (hasCustomModelDataComponent() is not available in the 1.21.4 API.)
@@ -112,6 +124,12 @@ public class DiscFragment {
     public static String getFragmentDiscId(ItemStack item) {
         if (item == null || !item.hasItemMeta()) {
             return null;
+        }
+
+        // Prefer the PDC tag; fall back to lore parsing for legacy items
+        String pdcId = ItemUtil.getPdcString(item, ItemUtil.FRAGMENT_DISC_ID_KEY);
+        if (pdcId != null) {
+            return pdcId;
         }
 
         ItemMeta meta = item.getItemMeta();

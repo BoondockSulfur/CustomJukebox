@@ -70,6 +70,13 @@ public class CategoryCreationWizard implements Listener {
         if (session.currentStep == 3) {
             if (input.equalsIgnoreCase("confirm")) {
                 SchedulerUtil.runPlayerTask(plugin, player, () -> {
+                    // Re-check permission - it may have been revoked mid-wizard
+                    if (!player.hasPermission("customjukebox.admin")) {
+                        MessageUtil.sendMessage(player, "&cYou no longer have permission to create categories!");
+                        activeSessions.remove(player.getUniqueId());
+                        return;
+                    }
+
                     boolean success = plugin.getDiscManager().createCategory(
                         session.categoryId,
                         session.displayName,
@@ -97,6 +104,13 @@ public class CategoryCreationWizard implements Listener {
     }
 
     private void handleStep(Player player, CreationSession session, String input) {
+        // Re-check permission - it may have been revoked mid-wizard
+        if (!player.hasPermission("customjukebox.admin")) {
+            MessageUtil.sendMessage(player, "&cYou no longer have permission to create categories!");
+            activeSessions.remove(player.getUniqueId());
+            return;
+        }
+
         switch (session.currentStep) {
             case 0: // Category ID
                 handleCategoryId(player, session, input);

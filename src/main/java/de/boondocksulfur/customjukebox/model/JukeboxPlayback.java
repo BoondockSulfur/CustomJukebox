@@ -18,9 +18,10 @@ public class JukeboxPlayback {
     private final CustomDisc disc;
     private final long startTime;           // System.currentTimeMillis() when playback started
     private final Set<UUID> listeners;      // Players currently hearing this disc
-    private boolean stopped;
-    private boolean loop;                   // Whether this playback should loop
-    private PlaybackRange range;            // Playback range/scope
+    // volatile: read/written from different region threads on Folia
+    private volatile boolean stopped;
+    private volatile boolean loop;          // Whether this playback should loop
+    private volatile PlaybackRange range;   // Playback range/scope
 
     public JukeboxPlayback(Location jukeboxLocation, CustomDisc disc) {
         this(jukeboxLocation, disc, false, new PlaybackRange(PlaybackRange.RangeType.NORMAL));

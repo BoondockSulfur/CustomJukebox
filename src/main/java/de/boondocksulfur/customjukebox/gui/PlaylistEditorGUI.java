@@ -3,9 +3,11 @@ package de.boondocksulfur.customjukebox.gui;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
+import de.boondocksulfur.customjukebox.utils.GUIHolder;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
+import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -13,6 +15,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -48,7 +51,7 @@ public class PlaylistEditorGUI implements Listener {
      */
     private Inventory createEditorInventory(DiscPlaylist playlist) {
         String title = "§6§lEdit: §e" + playlist.getDisplayName();
-        Inventory inv = InventoryUtil.createInventory(null, 54, title);
+        Inventory inv = InventoryUtil.createGuiInventory(this, 54, title);
 
         // Get all discs in playlist
         List<CustomDisc> playlistDiscs = plugin.getDiscManager().getDiscsFromPlaylist(playlist.getId());
@@ -134,26 +137,40 @@ public class PlaylistEditorGUI implements Listener {
         if (!(event.getWhoClicked() instanceof Player)) return;
         Player player = (Player) event.getWhoClicked();
 
+        // Only handle clicks while one of our own inventories is open
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
+
+        // Cancel FIRST - our GUI must never hand out items, even if the
+        // session context is missing for some reason
+        if (event.getClickedInventory() != null && event.getClickedInventory().equals(event.getView().getTopInventory())) {
+            event.setCancelled(true);
+        } else {
+            // Cancel actions that move items from the player inventory into the GUI
+            if (event.isShiftClick()) {
+                event.setCancelled(true);
+            }
+            return; // Don't handle clicks in player's own inventory
+        }
+
         // Check if player is in playlist editor
-        if (!activeEditors.containsKey(player.getUniqueId())) return;
+        String playlistId = activeEditors.get(player.getUniqueId());
+        if (playlistId == null) return;
 
         // Permission check - ensure player still has permission
         if (!player.hasPermission("customjukebox.playlist")) {
-            player.closeInventory();
             activeEditors.remove(player.getUniqueId());
             MessageUtil.sendMessage(player, "&cYou no longer have permission to edit playlists!");
+            // Close next tick - closeInventory() inside a click handler is undefined behavior
+            SchedulerUtil.runPlayerTask(plugin, player, player::closeInventory);
             return;
         }
 
-        String playlistId = activeEditors.get(player.getUniqueId());
         DiscPlaylist playlist = plugin.getDiscManager().getPlaylist(playlistId);
         if (playlist == null) {
-            player.closeInventory();
             activeEditors.remove(player.getUniqueId());
+            SchedulerUtil.runPlayerTask(plugin, player, player::closeInventory);
             return;
         }
-
-        event.setCancelled(true);
 
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || clicked.getType() == Material.AIR) return;
@@ -207,11 +224,23 @@ public class PlaylistEditorGUI implements Listener {
         if (!(event.getPlayer() instanceof Player)) return;
         Player player = (Player) event.getPlayer();
 
+        // Only react when one of our own inventories closes - the close event
+        // caused by opening this editor over another GUI must not clear the context
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
+        // Keep the context when one of our editors is replaced by a new inventory
+        // (e.g. openEditor called while an editor is already open)
+        if (event.getReason() == InventoryCloseEvent.Reason.OPEN_NEW) return;
+
         // Remove from active editors
         String playlistId = activeEditors.remove(player.getUniqueId());
         if (playlistId != null) {
             MessageUtil.sendMessage(player, "&aPlaylist editor closed.");
         }
+    }
+
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        InventoryUtil.cancelDragIntoGui(event, this);
     }
 
     /**

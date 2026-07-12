@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
 /**
@@ -25,9 +26,11 @@ import java.util.Map;
 public class LanguageManager {
 
     private final CustomJukebox plugin;
+    // Concurrent map + volatile fields: reloaded from a region thread on Folia
+    // while other threads resolve messages
     private final Map<String, FileConfiguration> languages;
-    private String currentLanguage;
-    private FileConfiguration currentConfig;
+    private volatile String currentLanguage;
+    private volatile FileConfiguration currentConfig;
 
     // Supported languages (same as JEXT)
     private static final String[] SUPPORTED_LANGUAGES = {"en", "de", "es", "it"};
@@ -35,7 +38,7 @@ public class LanguageManager {
 
     public LanguageManager(CustomJukebox plugin) {
         this.plugin = plugin;
-        this.languages = new HashMap<>();
+        this.languages = new ConcurrentHashMap<>();
         loadLanguages();
     }
 

@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.2.0] - 2026-07-12
+
+### Added
+- **Configurable "Now Playing" announcements**: the title shown in the center of the screen and the actionbar message when a custom disc starts can now be disabled individually via `playback.show-title` and `playback.show-actionbar` in `config.json` (both default to `true`, matching previous behavior).
+- **Automatic config merging**: on load, `config.json` and `disc.json` are compared against the plugin's bundled defaults and any keys introduced by a newer version are added automatically, without overwriting existing values. New options (like the `show-*` flags above) now appear in existing config files after an update/`reload` instead of having to be added by hand. In `disc.json` the `discs`/`categories`/`playlists` sections are treated as user content and are never re-seeded with the default examples, so deleted example discs do not reappear.
+- **Configurable backup count**: the number of timestamped `config`/`disc` backups kept is now set via `settings.max-backups` (default `5`, same as before). Set it to `0` to disable backups entirely — existing backup files are then pruned on the next save. Values are clamped to a maximum of 100. Previously the count was hard-coded to 5.
+
+### Fixed
+- **GUI system rebuilt on InventoryHolder**: All plugin GUIs (Admin panel, disc/category/playlist editors, jukebox disc GUI) are now identified via a custom `InventoryHolder` instead of window titles and per-player context maps. This fixes a family of serious bugs:
+  - Closing a GUI with ESC no longer leaves a stale session that hijacked clicks in chests/containers opened afterwards (previously this could **overwrite real chest contents** with GUI items and spawn free disc copies via the delete-confirmation dialog).
+  - Opening the playlist editor or disc editor from the admin panel no longer breaks their click handling (the close event of the previous menu wiped the new context).
+  - The same click is no longer processed by two GUIs at once (admin panel + disc editor).
+  - The jukebox disc GUI no longer depends on a lossy title round-trip — hex/gradient `gui-title` values previously broke the comparison and made GUI items freely extractable.
+  - `/cjb gui` uses the same holder-tagged inventory, and all GUI click handlers cancel the click *before* any session/permission checks, so a missing session can never make GUI items extractable.
+- **Item safety in GUIs**: `InventoryDragEvent` is now cancelled in all GUIs (items could previously be dragged into a GUI and lost), and collect-to-cursor double-clicks can no longer pull items out.
+- **Logout cleanup**: All GUI/wizard sessions are cleared on player quit. Previously a player who logged out mid-wizard had every chat message swallowed and processed as wizard input after rejoining.
+- **Folia: auto-stop/loop tasks are now cancellable**: `SchedulerUtil` returns a platform-independent `TaskHandle` (wrapping Folia's `ScheduledTask.cancel()`). Stale auto-stop tasks could previously stop a *newer* playback at the same jukebox (e.g. disc B stopped mid-song at disc A's old end time), and orphaned loop tasks multiplied. Tasks additionally verify they still belong to the same playback session when firing.
+- **Playlists survive volume/mute restarts**: `/cjb mute`, `/cjb unmute` and `/cjb volume <x> restart` no longer wipe the running playlist queue (playback previously went silent after the current track).
+- **Skeleton-kill fragment drops actually work**: the guaranteed drop when a skeleton kills a creeper never triggered (`getKiller()` only returns players). Now resolved via the last damage cause, including arrows, covering Skeleton/Stray/Bogged.
+- **Off-hand discs are recognized**: interaction handlers now use the hand that triggered the event. Off-hand discs previously got inserted by vanilla without the custom sound; the GUI also opened twice. With the GUI enabled, an off-hand disc now takes priority over opening the GUI.
+- **Ejecting by disc swap stops the sound**: right-clicking an occupied jukebox while holding another disc lets vanilla eject the record — the custom sound now stops with it (previously it kept playing over the empty jukebox).
+- **Hopper support**: a hopper extracting the disc stops the custom sound (it previously played to the end); a hopper inserting a custom disc starts the custom sound. Extraction is verified one tick later so transfers cancelled by protection plugins don't cut the music.
+- **Disc identity via PersistentDataContainer**: disc and fragment items now carry their ID in the PDC. Two discs sharing the same CustomModelData are no longer confused when editing/deleting/giving (legacy items still match by model data). Note: deleting a disc and recreating it under a new ID invalidates already-issued items of the old ID — they intentionally no longer match by texture alone.
+- **Thread-safety on Folia**: disc/category/playlist/language registries are now `ConcurrentHashMap` (a `/cjb reload` could previously throw `ConcurrentModificationException` in event handlers on other region threads); `UpdateChecker` results, mute state and playback flags are `volatile`; `onDisable` no longer calls the Bukkit scheduler on Folia (threw `UnsupportedOperationException`).
+- **config.json saves atomically** (temp file + atomic move, like disc.json) and `/cjb reload` reloads the persisted mute state.
+- **Validation restored**: disc/category/playlist IDs must be `[A-Za-z0-9_-]+` (IDs with spaces were previously creatable but unusable in commands); sound keys are validated as resource locations again — the wizard's error messages for these cases were dead code.
+- **Gradients fixed**: `<gradient:#RRGGBB:#RRGGBB>` was destroyed by the hex pre-pass in `AdventureUtil` and never rendered; hex colors are no longer downsampled to legacy codes on serialization.
+- **`/cjb volume`**: tab-completion no longer suggests locale-formatted values like `0,5` that the parser rejects; `NaN` no longer passes the range check.
+- **Permission `customjukebox.fragment`** is now actually checked by `/cjb fragment` (previously it required `customjukebox.give`, and the declared node was dead). Migration note: servers that granted `customjukebox.give` directly (not via `customjukebox.admin`) must additionally grant `customjukebox.fragment` to keep `/cjb fragment` access.
+- **Playback tracking leak**: discs without a configured duration no longer leave a tracking entry behind forever (fallback cleanup after 1 hour); `loop` without a duration now logs a warning instead of being silently ignored.
+- **Orphan cleanup**: deleting a disc removes it from all playlists; deleting a category detaches it from its discs.
+- **Deleting playlists/categories** in the admin panel now requires a confirming second right-click (they were previously deleted instantly and irreversibly); failed deletions report an error.
+- **Chat-input hardening**: input modes are consumed atomically (rapid double messages were processed twice), the disc editor's chat handler respects cancelled events, and all chat/wizard handlers re-check the admin permission before applying input.
+- **Log hygiene**: per-click and per-playlist-progression INFO logs are now behind the debug flag.
+
+### Changed
+- `ParrotDanceListener` no longer schedules hundreds of empty per-parrot tasks (the vanilla dance animation cannot be forced via the Bukkit API); it now shows a short note-particle burst above nearby parrots instead.
+
+### Performance
+- **Fewer disk writes on delete**: deleting a disc or category now rewrites `disc.json` a single time instead of once per affected playlist/disc (each of which previously also created a backup and scanned the backup directory).
+- **Folia scheduler**: reflection handles are resolved once against the public scheduler interfaces and cached, instead of being looked up on every schedule/cancel call on the playback hot path.
+- **Cheaper event hot paths**: hopper transfers are filtered by item/inventory type before any block-state lookup, and GUI event handlers use a non-snapshotting holder check — so hopper-heavy servers and players interacting with vanilla containers no longer pay for block-entity snapshots on every event.
+
+---
+
 ## [3.1.0] - 2026-07-04
 
 ### Changed

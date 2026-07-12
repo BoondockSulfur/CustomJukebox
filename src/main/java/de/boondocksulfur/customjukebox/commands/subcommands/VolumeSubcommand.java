@@ -8,6 +8,7 @@ import org.bukkit.command.CommandSender;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -55,7 +56,7 @@ public class VolumeSubcommand implements SubCommand {
         if (args.length == 0) {
             float currentVolume = plugin.getConfigManager().getVolume();
             MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("volume-current")
-                .replace("{volume}", String.format("%.2f", currentVolume)));
+                .replace("{volume}", String.format(Locale.ROOT, "%.2f", currentVolume)));
             return true;
         }
 
@@ -77,8 +78,8 @@ public class VolumeSubcommand implements SubCommand {
             presetName = args[0].toLowerCase();
         }
 
-        // Validate range (0.0 to 4.0)
-        if (volume < 0.0f || volume > 4.0f) {
+        // Validate range (0.0 to 4.0); the negated check also rejects NaN
+        if (!(volume >= 0.0f && volume <= 4.0f)) {
             MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("volume-invalid-range"));
             return true;
         }
@@ -105,10 +106,10 @@ public class VolumeSubcommand implements SubCommand {
         if (presetName != null) {
             message = plugin.getLanguageManager().getMessage("volume-set-preset")
                 .replace("{preset}", presetName)
-                .replace("{volume}", String.format("%.2f", volume));
+                .replace("{volume}", String.format(Locale.ROOT, "%.2f", volume));
         } else {
             message = plugin.getLanguageManager().getMessage("volume-set")
-                .replace("{volume}", String.format("%.2f", volume));
+                .replace("{volume}", String.format(Locale.ROOT, "%.2f", volume));
         }
 
         if (restart) {
@@ -161,7 +162,7 @@ public class VolumeSubcommand implements SubCommand {
 
             // Add numeric values (0.0 to 4.0 in 0.1 increments)
             for (int i = 0; i <= 40; i++) {
-                suggestions.add(String.format("%.1f", i / 10.0f));
+                suggestions.add(String.format(Locale.ROOT, "%.1f", i / 10.0f));
             }
 
             return suggestions.stream()

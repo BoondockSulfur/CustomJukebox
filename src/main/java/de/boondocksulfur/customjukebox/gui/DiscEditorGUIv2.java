@@ -4,6 +4,8 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.GUIHolder;
+import de.boondocksulfur.customjukebox.utils.InputValidator;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -14,7 +16,10 @@ import org.bukkit.entity.Player;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -49,7 +54,7 @@ public class DiscEditorGUIv2 implements Listener {
      * Opens duration selector GUI.
      */
     private void openDurationSelector(Player player, String discId) {
-        Inventory gui = InventoryUtil.createInventory(null, 54, "§a§lSelect Duration");
+        Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§a§lSelect Duration");
 
         // Preset durations
         int[] durations = {30, 60, 90, 120, 150, 180, 210, 240, 300, 360, 420, 480, 600};
@@ -89,7 +94,7 @@ public class DiscEditorGUIv2 implements Listener {
      * Opens category selector GUI.
      */
     private void openCategorySelector(Player player, String discId) {
-        Inventory gui = InventoryUtil.createInventory(null, 54, "§6§lSelect Category");
+        Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§6§lSelect Category");
 
         // No category option
         ItemStack noCategory = createEditorItem(Material.BARRIER,
@@ -138,7 +143,7 @@ public class DiscEditorGUIv2 implements Listener {
      * Opens custom model data selector.
      */
     private void openModelDataSelector(Player player, String discId) {
-        Inventory gui = InventoryUtil.createInventory(null, 54, "§c§lSelect Model Data");
+        Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§c§lSelect Model Data");
 
         // Preset model data values
         int[] modelDataValues = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
@@ -189,8 +194,13 @@ public class DiscEditorGUIv2 implements Listener {
      */
     public void confirmDelete(Player player, CustomDisc disc) {
         Inventory gui = createDeleteConfirmationGUI(disc);
-        // Update inventory content without closing
+        // Update inventory content without closing - but only if the open
+        // inventory really is one of ours (never overwrite e.g. a chest)
         Inventory currentInv = player.getOpenInventory().getTopInventory();
+        if (!GUIHolder.isOwnedBy(currentInv, this)) {
+            confirmDeleteFromExternal(player, disc);
+            return;
+        }
         currentInv.setContents(gui.getContents());
         activeEditors.put(player.getUniqueId(), new EditorContext(disc.getId(), EditorMode.CONFIRM_DELETE));
     }
@@ -199,7 +209,7 @@ public class DiscEditorGUIv2 implements Listener {
      * Creates the delete confirmation GUI inventory.
      */
     private Inventory createDeleteConfirmationGUI(CustomDisc disc) {
-        Inventory gui = InventoryUtil.createInventory(null, 27, "§c§lDelete: " + disc.getDisplayName());
+        Inventory gui = InventoryUtil.createGuiInventory(this, 27, "§c§lDelete: " + disc.getDisplayName());
 
         // Disc preview
         gui.setItem(13, disc.createItemStack());
@@ -227,18 +237,31 @@ public class DiscEditorGUIv2 implements Listener {
         if (!(event.getWhoClicked() instanceof Player)) return;
         Player player = (Player) event.getWhoClicked();
 
-        EditorContext context = activeEditors.get(player.getUniqueId());
-        if (context == null) return;
+        // Only handle clicks while one of our own inventories is open
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
 
-        // Only cancel if clicking in the top inventory (the GUI)
+        // Cancel FIRST - our GUI must never hand out items, even if the
+        // session context is missing for some reason
         if (event.getClickedInventory() != null && event.getClickedInventory().equals(event.getView().getTopInventory())) {
             event.setCancelled(true);
         } else {
-            // Allow shift-click from player inventory to be cancelled (prevents moving items to GUI)
-            if (event.isShiftClick()) {
+            // Cancel actions that move items from the player inventory into the GUI
+            if (event.isShiftClick() || event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
                 event.setCancelled(true);
             }
             return; // Don't handle clicks in player's own inventory
+        }
+
+        EditorContext context = activeEditors.get(player.getUniqueId());
+        if (context == null) return;
+
+        // Permission check - ensure player still has admin permission
+        if (!player.hasPermission("customjukebox.admin")) {
+            activeEditors.remove(player.getUniqueId());
+            MessageUtil.sendMessage(player, "&cYou no longer have permission to edit discs!");
+            // Close next tick - closeInventory() inside a click handler is undefined behavior
+            SchedulerUtil.runPlayerTask(plugin, player, player::closeInventory);
+            return;
         }
 
         ItemStack clicked = event.getCurrentItem();
@@ -359,7 +382,7 @@ public class DiscEditorGUIv2 implements Listener {
     }
 
     private Inventory createMainEditor(CustomDisc disc) {
-        Inventory gui = InventoryUtil.createInventory(null, 54, "§6§lEdit: §e" + disc.getId());
+        Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§6§lEdit: §e" + disc.getId());
 
         // Display Name
         ItemStack displayName = createEditorItem(Material.NAME_TAG,
@@ -542,7 +565,9 @@ public class DiscEditorGUIv2 implements Listener {
         EditorContext context = activeEditors.get(player.getUniqueId());
         boolean fromExternal = context != null && context.fromExternal;
 
-        plugin.getLogger().info("Delete confirm click: player=" + player.getName() + ", slot=" + slot + ", fromExternal=" + fromExternal);
+        if (plugin.getConfigManager().isDebug()) {
+            plugin.getLogger().info("Delete confirm click: player=" + player.getName() + ", slot=" + slot + ", fromExternal=" + fromExternal);
+        }
 
         if (slot == 21) {
             // Confirm delete
@@ -570,16 +595,12 @@ public class DiscEditorGUIv2 implements Listener {
             }
         } else if (slot == 23) {
             // Cancel
-            plugin.getLogger().info("Cancel button clicked - fromExternal=" + fromExternal);
             if (fromExternal) {
                 // Return to AdminGUI Disc Management
-                plugin.getLogger().info("Returning to AdminGUI Disc Management");
                 player.closeInventory();
                 activeEditors.remove(player.getUniqueId());
-                SchedulerUtil.runPlayerTaskLater(plugin, player, () -> {
-                    plugin.getLogger().info("Opening AdminGUI Disc Management for " + player.getName());
-                    plugin.getAdminGUI().openDiscManagement(player);
-                }, 1L);
+                SchedulerUtil.runPlayerTaskLater(plugin, player, () ->
+                    plugin.getAdminGUI().openDiscManagement(player), 1L);
             } else {
                 // Go back to Disc Editor
                 CustomDisc disc = plugin.getDiscManager().getDisc(discId);
@@ -597,10 +618,31 @@ public class DiscEditorGUIv2 implements Listener {
         }
     }
 
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player)) return;
+        Player player = (Player) event.getPlayer();
+
+        // Only react to our own inventories; keep the context while navigating
+        // between our menus (closing is caused by opening the next inventory)
+        if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
+        if (event.getReason() == InventoryCloseEvent.Reason.OPEN_NEW) return;
+
+        activeEditors.remove(player.getUniqueId());
+    }
+
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        InventoryUtil.cancelDragIntoGui(event, this);
+    }
+
     @EventHandler(priority = org.bukkit.event.EventPriority.LOWEST)
     public void onChat(AsyncChatEvent event) {
+        if (event.isCancelled()) return; // Already handled by another GUI
+
         Player player = event.getPlayer();
-        String mode = chatInputMode.get(player.getUniqueId());
+        // Remove atomically so rapid consecutive messages are not processed twice
+        String mode = chatInputMode.remove(player.getUniqueId());
 
         if (mode == null) return;
 
@@ -611,11 +653,9 @@ public class DiscEditorGUIv2 implements Listener {
             MessageUtil.sendMessage(player, "&cInput cancelled");
             String[] cancelParts = mode.split(":");
             if (cancelParts.length < 2) {
-                chatInputMode.remove(player.getUniqueId());
                 return;
             }
             String discId = cancelParts[1];
-            chatInputMode.remove(player.getUniqueId());
 
             // Reopen editor without closing
             SchedulerUtil.runPlayerTask(plugin, player, () -> {
@@ -631,10 +671,15 @@ public class DiscEditorGUIv2 implements Listener {
     }
 
     private void handleChatInput(Player player, String mode, String input) {
+        // Re-check permission - it may have been revoked mid-input
+        if (!player.hasPermission("customjukebox.admin")) {
+            MessageUtil.sendMessage(player, "&cYou no longer have permission to edit discs!");
+            return;
+        }
+
         String[] parts = mode.split(":");
         if (parts.length < 2) {
             MessageUtil.sendMessage(player, "&cInvalid editor state!");
-            chatInputMode.remove(player.getUniqueId());
             return;
         }
         String field = parts[0];
@@ -643,7 +688,6 @@ public class DiscEditorGUIv2 implements Listener {
         CustomDisc disc = plugin.getDiscManager().getDisc(discId);
         if (disc == null) {
             MessageUtil.sendMessage(player, "&cDisc not found!");
-            chatInputMode.remove(player.getUniqueId());
             return;
         }
 
@@ -658,8 +702,8 @@ public class DiscEditorGUIv2 implements Listener {
                 MessageUtil.sendMessage(player, "&a✓ Author updated: &f" + input);
                 break;
             case "soundKey":
-                if (!input.contains(":")) {
-                    MessageUtil.sendMessage(player, "&cInvalid format! Use: namespace:sound_name");
+                if (!InputValidator.isValidSoundKey(input)) {
+                    MessageUtil.sendMessage(player, "&cInvalid format! Use: namespace:sound_name (lowercase)");
                     MessageUtil.sendMessage(player, "&7Reopening editor...");
                     success = false;
                 } else {
@@ -701,6 +745,12 @@ public class DiscEditorGUIv2 implements Listener {
                 break;
             case "newCategory":
                 String categoryId = input.toLowerCase().replace(" ", "_");
+                if (!InputValidator.isValidCategoryId(categoryId)) {
+                    MessageUtil.sendMessage(player, "&cInvalid category ID! Use letters, numbers, - and _ (max "
+                        + InputValidator.MAX_CATEGORY_ID_LENGTH + " characters)");
+                    success = false;
+                    break;
+                }
                 // Create category if it doesn't exist
                 boolean created = plugin.getDiscManager().createCategory(categoryId, input, "Created via GUI");
                 if (created) {
@@ -713,8 +763,6 @@ public class DiscEditorGUIv2 implements Listener {
                 MessageUtil.sendMessage(player, "&a✓ Category assigned to disc");
                 break;
         }
-
-        chatInputMode.remove(player.getUniqueId());
 
         // Always reopen editor after input - use scheduler to ensure player is back from chat
         CustomDisc updatedDisc = plugin.getDiscManager().getDisc(discId);

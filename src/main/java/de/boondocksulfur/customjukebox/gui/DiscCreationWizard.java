@@ -68,6 +68,13 @@ public class DiscCreationWizard implements Listener {
     }
 
     private void handleStep(Player player, CreationSession session, String input) {
+        // Re-check permission - it may have been revoked mid-wizard
+        if (!player.hasPermission("customjukebox.admin")) {
+            MessageUtil.sendMessage(player, "&cYou no longer have permission to create discs!");
+            activeSessions.remove(player.getUniqueId());
+            return;
+        }
+
         switch (session.currentStep) {
             case 0: // Disc ID
                 handleDiscId(player, session, input);

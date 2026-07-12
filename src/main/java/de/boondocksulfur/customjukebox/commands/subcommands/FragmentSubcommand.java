@@ -38,7 +38,7 @@ public class FragmentSubcommand implements SubCommand {
 
     @Override
     public String getPermission() {
-        return "customjukebox.give";
+        return "customjukebox.fragment";
     }
 
     @Override

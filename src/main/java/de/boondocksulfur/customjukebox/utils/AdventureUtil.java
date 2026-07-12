@@ -29,8 +29,13 @@ import java.util.regex.Pattern;
 public class AdventureUtil {
 
     private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
+    // hexColors(): serialize hex colors as &#rrggbb instead of downsampling
+    // them to the nearest &-code (which would break round-trips)
     private static final LegacyComponentSerializer LEGACY_SERIALIZER =
-        LegacyComponentSerializer.legacyAmpersand();
+        LegacyComponentSerializer.builder()
+            .character('&')
+            .hexColors()
+            .build();
 
     // Regex patterns for custom formats
     private static final Pattern HEX_PATTERN = Pattern.compile("&#([A-Fa-f0-9]{6})");
@@ -128,20 +133,17 @@ public class AdventureUtil {
         }
         matcher.appendTail(result);
 
-        // Also handle #RRGGBB format (without &)
+        // Also handle #RRGGBB format (without &).
+        // Skip codes that are already part of a MiniMessage tag: directly after
+        // '<' (e.g. <#FF5555>) or after ':' (e.g. <gradient:#FF0000:#0000FF>).
         text = result.toString();
-        Pattern simpleHexPattern = Pattern.compile("#([A-Fa-f0-9]{6})");
+        Pattern simpleHexPattern = Pattern.compile("(?<![<:])#([A-Fa-f0-9]{6})");
         matcher = simpleHexPattern.matcher(text);
         result = new StringBuffer();
 
         while (matcher.find()) {
             String hexCode = matcher.group(1);
-            // Only replace if not already in MiniMessage format
-            if (!text.substring(Math.max(0, matcher.start() - 1), matcher.start()).equals("<")) {
-                matcher.appendReplacement(result, "<#" + hexCode + ">");
-            } else {
-                matcher.appendReplacement(result, matcher.group(0));
-            }
+            matcher.appendReplacement(result, "<#" + hexCode + ">");
         }
         matcher.appendTail(result);
 
