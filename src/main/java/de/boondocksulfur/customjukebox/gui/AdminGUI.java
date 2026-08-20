@@ -6,6 +6,7 @@ import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
+import de.boondocksulfur.customjukebox.utils.GuiPageUtil;
 import de.boondocksulfur.customjukebox.utils.InputValidator;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
@@ -34,6 +35,16 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AdminGUI implements Listener {
 
     private static final long DELETE_CONFIRM_TIMEOUT_MILLIS = 10_000L;
+
+    // List layout: entries occupy slots 9..44, the bottom row is navigation
+    private static final int ENTRIES_PER_PAGE = 36;
+    private static final int FIRST_ENTRY_SLOT = 9;
+    private static final int LAST_ENTRY_SLOT = 45; // exclusive
+    private static final int SLOT_CREATE = 4;
+    private static final int SLOT_PREV_PAGE = 45;
+    private static final int SLOT_PAGE_INFO = 46;
+    private static final int SLOT_BACK = 49;
+    private static final int SLOT_NEXT_PAGE = 53;
 
     private final CustomJukebox plugin;
     private final Map<UUID, GUIContext> activeGUIs = new ConcurrentHashMap<>();
@@ -87,21 +98,29 @@ public class AdminGUI implements Listener {
      * Opens the disc management menu.
      */
     public void openDiscManagement(Player player) {
+        openDiscManagement(player, 0);
+    }
+
+    /**
+     * Opens the disc management list at the given page.
+     * @param player viewer
+     * @param page zero-based page index (clamped)
+     */
+    public void openDiscManagement(Player player, int page) {
         Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§6§lAdmin §8» §eDisc Management");
 
         // Add "Create New Disc" button
         ItemStack createNew = createMenuItem(Material.EMERALD, "§a§l+ Create New Disc",
             "§7Click to create a new custom disc",
             "§8Opens disc configuration GUI");
-        gui.setItem(4, createNew);
+        gui.setItem(SLOT_CREATE, createNew);
 
-        // List all existing discs
-        Collection<CustomDisc> discs = plugin.getDiscManager().getAllDiscs();
-        int slot = 9;
+        // List existing discs (paged)
+        List<CustomDisc> discs = new ArrayList<>(plugin.getDiscManager().getAllDiscs());
+        page = GuiPageUtil.clampPage(page, discs.size(), ENTRIES_PER_PAGE);
+        int slot = FIRST_ENTRY_SLOT;
 
-        for (CustomDisc disc : discs) {
-            if (slot >= 45) break;
-
+        for (CustomDisc disc : GuiPageUtil.slice(discs, page, ENTRIES_PER_PAGE)) {
             ItemStack item = disc.createItemStack();
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
@@ -117,10 +136,9 @@ public class AdminGUI implements Listener {
             gui.setItem(slot++, item);
         }
 
-        // Back button
-        addBackButton(gui, 49);
+        addNavigation(gui, page, discs.size(), "discs");
 
-        activeGUIs.put(player.getUniqueId(), new GUIContext(GUIType.DISC_MANAGEMENT));
+        activeGUIs.put(player.getUniqueId(), new GUIContext(GUIType.DISC_MANAGEMENT, page));
         player.openInventory(gui);
     }
 
@@ -128,21 +146,24 @@ public class AdminGUI implements Listener {
      * Opens the playlist management menu.
      */
     private void openPlaylistManagement(Player player) {
+        openPlaylistManagement(player, 0);
+    }
+
+    private void openPlaylistManagement(Player player, int page) {
         Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§b§lAdmin §8» §ePlaylist Management");
 
         // Add "Create New Playlist" button
         ItemStack createNew = createMenuItem(Material.EMERALD, "§a§l+ Create New Playlist",
             "§7Click to create a new playlist",
             "§8Opens playlist configuration");
-        gui.setItem(4, createNew);
+        gui.setItem(SLOT_CREATE, createNew);
 
-        // List all existing playlists
-        Collection<DiscPlaylist> playlists = plugin.getDiscManager().getAllPlaylists();
-        int slot = 9;
+        // List existing playlists (paged)
+        List<DiscPlaylist> playlists = new ArrayList<>(plugin.getDiscManager().getAllPlaylists());
+        page = GuiPageUtil.clampPage(page, playlists.size(), ENTRIES_PER_PAGE);
+        int slot = FIRST_ENTRY_SLOT;
 
-        for (DiscPlaylist playlist : playlists) {
-            if (slot >= 45) break;
-
+        for (DiscPlaylist playlist : GuiPageUtil.slice(playlists, page, ENTRIES_PER_PAGE)) {
             ItemStack item = createMenuItem(Material.NOTE_BLOCK,
                 "§b§l" + playlist.getDisplayName(),
                 "§7ID: §e" + playlist.getId(),
@@ -151,14 +172,16 @@ public class AdminGUI implements Listener {
                 "",
                 "§e§lLeft-Click: §7Edit playlist",
                 "§c§lRight-Click: §7Delete playlist");
+            // The id also travels in the item's PDC - lore text is display data
+            // and would break as soon as a name contains the same prefix
+            item = ItemUtil.withPdcString(item, ItemUtil.PLAYLIST_ID_KEY, playlist.getId());
 
             gui.setItem(slot++, item);
         }
 
-        // Back button
-        addBackButton(gui, 49);
+        addNavigation(gui, page, playlists.size(), "playlists");
 
-        activeGUIs.put(player.getUniqueId(), new GUIContext(GUIType.PLAYLIST_MANAGEMENT));
+        activeGUIs.put(player.getUniqueId(), new GUIContext(GUIType.PLAYLIST_MANAGEMENT, page));
         player.openInventory(gui);
     }
 
@@ -166,21 +189,24 @@ public class AdminGUI implements Listener {
      * Opens the category management menu.
      */
     public void openCategoryManagement(Player player) {
+        openCategoryManagement(player, 0);
+    }
+
+    private void openCategoryManagement(Player player, int page) {
         Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§d§lAdmin §8» §eCategory Management");
 
         // Add "Create New Category" button
         ItemStack createNew = createMenuItem(Material.EMERALD, "§a§l+ Create New Category",
             "§7Click to create a new category",
             "§8Organize discs by theme");
-        gui.setItem(4, createNew);
+        gui.setItem(SLOT_CREATE, createNew);
 
-        // List all existing categories
-        Collection<DiscCategory> categories = plugin.getDiscManager().getAllCategories();
-        int slot = 9;
+        // List existing categories (paged)
+        List<DiscCategory> categories = new ArrayList<>(plugin.getDiscManager().getAllCategories());
+        page = GuiPageUtil.clampPage(page, categories.size(), ENTRIES_PER_PAGE);
+        int slot = FIRST_ENTRY_SLOT;
 
-        for (DiscCategory category : categories) {
-            if (slot >= 45) break;
-
+        for (DiscCategory category : GuiPageUtil.slice(categories, page, ENTRIES_PER_PAGE)) {
             int discCount = plugin.getDiscManager().getDiscsByCategory(category.getId()).size();
             ItemStack item = createMenuItem(Material.BOOKSHELF,
                 "§d§l" + category.getDisplayName(),
@@ -190,14 +216,14 @@ public class AdminGUI implements Listener {
                 "",
                 "§e§lLeft-Click: §7Edit category",
                 "§c§lRight-Click: §7Delete category");
+            item = ItemUtil.withPdcString(item, ItemUtil.CATEGORY_ID_KEY, category.getId());
 
             gui.setItem(slot++, item);
         }
 
-        // Back button
-        addBackButton(gui, 49);
+        addNavigation(gui, page, categories.size(), "categories");
 
-        activeGUIs.put(player.getUniqueId(), new GUIContext(GUIType.CATEGORY_MANAGEMENT));
+        activeGUIs.put(player.getUniqueId(), new GUIContext(GUIType.CATEGORY_MANAGEMENT, page));
         player.openInventory(gui);
     }
 
@@ -238,6 +264,18 @@ public class AdminGUI implements Listener {
 
         int slot = event.getSlot();
 
+        // Paging is identical for all three list screens
+        if (context.type != GUIType.MAIN_MENU && (slot == SLOT_PREV_PAGE || slot == SLOT_NEXT_PAGE)) {
+            int target = slot == SLOT_PREV_PAGE ? context.page - 1 : context.page + 1;
+            switch (context.type) {
+                case DISC_MANAGEMENT: openDiscManagement(player, target); break;
+                case PLAYLIST_MANAGEMENT: openPlaylistManagement(player, target); break;
+                case CATEGORY_MANAGEMENT: openCategoryManagement(player, target); break;
+                default: break;
+            }
+            return;
+        }
+
         switch (context.type) {
             case MAIN_MENU:
                 handleMainMenuClick(player, slot);
@@ -246,10 +284,10 @@ public class AdminGUI implements Listener {
                 handleDiscManagementClick(player, slot, clicked, event.isRightClick());
                 break;
             case PLAYLIST_MANAGEMENT:
-                handlePlaylistManagementClick(player, slot, clicked, event.isRightClick());
+                handlePlaylistManagementClick(player, slot, clicked, event.isRightClick(), context.page);
                 break;
             case CATEGORY_MANAGEMENT:
-                handleCategoryManagementClick(player, slot, clicked, event.isRightClick());
+                handleCategoryManagementClick(player, slot, clicked, event.isRightClick(), context.page);
                 break;
         }
     }
@@ -274,20 +312,20 @@ public class AdminGUI implements Listener {
     }
 
     private void handleDiscManagementClick(Player player, int slot, ItemStack clicked, boolean rightClick) {
-        if (slot == 4) {
+        if (slot == SLOT_CREATE) {
             // Create new disc
             player.closeInventory();
             plugin.getDiscCreationWizard().startWizard(player);
             return;
         }
 
-        if (slot == 49) {
+        if (slot == SLOT_BACK) {
             // Back button
             openMainMenu(player);
             return;
         }
 
-        if (slot >= 9 && slot < 45) {
+        if (slot >= FIRST_ENTRY_SLOT && slot < LAST_ENTRY_SLOT) {
             CustomDisc disc = plugin.getDiscManager().getDiscFromItem(clicked);
             if (disc == null) return;
 
@@ -301,8 +339,8 @@ public class AdminGUI implements Listener {
         }
     }
 
-    private void handlePlaylistManagementClick(Player player, int slot, ItemStack clicked, boolean rightClick) {
-        if (slot == 4) {
+    private void handlePlaylistManagementClick(Player player, int slot, ItemStack clicked, boolean rightClick, int page) {
+        if (slot == SLOT_CREATE) {
             // Create new playlist - prompt for ID via chat
             player.closeInventory();
             MessageUtil.sendMessage(player, "&7Enter new &ePlaylist ID &7in chat:");
@@ -312,18 +350,14 @@ public class AdminGUI implements Listener {
             return;
         }
 
-        if (slot == 49) {
+        if (slot == SLOT_BACK) {
             // Back button
             openMainMenu(player);
             return;
         }
 
-        if (slot >= 9 && slot < 45) {
-            // Extract playlist from lore
-            ItemMeta meta = clicked.getItemMeta();
-            if (meta == null || ItemUtil.getLore(meta) == null) return;
-
-            String playlistId = extractPlaylistIdFromLore(ItemUtil.getLore(meta));
+        if (slot >= FIRST_ENTRY_SLOT && slot < LAST_ENTRY_SLOT) {
+            String playlistId = ItemUtil.getPdcString(clicked, ItemUtil.PLAYLIST_ID_KEY);
             if (playlistId == null) return;
 
             DiscPlaylist playlist = plugin.getDiscManager().getPlaylist(playlistId);
@@ -336,7 +370,7 @@ public class AdminGUI implements Listener {
                 if (success) {
                     MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("playlist-deleted")
                         .replace("{playlist}", playlistId));
-                    openPlaylistManagement(player); // Refresh
+                    openPlaylistManagement(player, page); // Refresh, same page
                 } else {
                     MessageUtil.sendMessage(player, "&cFailed to delete playlist!");
                 }
@@ -347,26 +381,22 @@ public class AdminGUI implements Listener {
         }
     }
 
-    private void handleCategoryManagementClick(Player player, int slot, ItemStack clicked, boolean rightClick) {
-        if (slot == 4) {
+    private void handleCategoryManagementClick(Player player, int slot, ItemStack clicked, boolean rightClick, int page) {
+        if (slot == SLOT_CREATE) {
             // Create new category
             player.closeInventory();
             plugin.getCategoryCreationWizard().startWizard(player);
             return;
         }
 
-        if (slot == 49) {
+        if (slot == SLOT_BACK) {
             // Back button
             openMainMenu(player);
             return;
         }
 
-        if (slot >= 9 && slot < 45) {
-            // Extract category from lore
-            ItemMeta meta = clicked.getItemMeta();
-            if (meta == null || ItemUtil.getLore(meta) == null) return;
-
-            String categoryId = extractCategoryIdFromLore(ItemUtil.getLore(meta));
+        if (slot >= FIRST_ENTRY_SLOT && slot < LAST_ENTRY_SLOT) {
+            String categoryId = ItemUtil.getPdcString(clicked, ItemUtil.CATEGORY_ID_KEY);
             if (categoryId == null) return;
 
             if (rightClick) {
@@ -375,7 +405,7 @@ public class AdminGUI implements Listener {
                 boolean success = plugin.getDiscManager().deleteCategory(categoryId);
                 if (success) {
                     MessageUtil.sendMessage(player, "&aCategory deleted: &e" + categoryId);
-                    openCategoryManagement(player); // Refresh
+                    openCategoryManagement(player, page); // Refresh, same page
                 } else {
                     MessageUtil.sendMessage(player, "&cFailed to delete category!");
                 }
@@ -385,24 +415,6 @@ public class AdminGUI implements Listener {
                 plugin.getCategoryEditorGUI().openEditor(player, categoryId);
             }
         }
-    }
-
-    private String extractPlaylistIdFromLore(List<String> lore) {
-        for (String line : lore) {
-            if (line.startsWith("§7ID: §e")) {
-                return line.replace("§7ID: §e", "");
-            }
-        }
-        return null;
-    }
-
-    private String extractCategoryIdFromLore(List<String> lore) {
-        for (String line : lore) {
-            if (line.startsWith("§7ID: §e")) {
-                return line.replace("§7ID: §e", "");
-            }
-        }
-        return null;
     }
 
     @EventHandler
@@ -518,19 +530,39 @@ public class AdminGUI implements Listener {
         return item;
     }
 
-    private void addBackButton(Inventory gui, int slot) {
+    /**
+     * Fills the bottom navigation row: back to the main menu plus paging.
+     *
+     * @param gui inventory being built
+     * @param page current zero-based page
+     * @param totalItems number of entries across all pages
+     * @param entryLabel plural noun used in the page indicator
+     */
+    private void addNavigation(Inventory gui, int page, int totalItems, String entryLabel) {
         ItemStack back = createMenuItem(Material.ARROW, "§c§lBack",
             "§7Return to main menu");
-        gui.setItem(slot, back);
+        gui.setItem(SLOT_BACK, back);
+
+        int pageCount = GuiPageUtil.pageCount(totalItems, ENTRIES_PER_PAGE);
+        gui.setItem(SLOT_PREV_PAGE, GuiPageUtil.previousButton(page));
+        gui.setItem(SLOT_NEXT_PAGE, GuiPageUtil.nextButton(page, pageCount));
+        gui.setItem(SLOT_PAGE_INFO, GuiPageUtil.pageIndicator(page, pageCount, totalItems, entryLabel));
     }
 
     // Context tracking
 
     private static class GUIContext {
-        GUIType type;
+        final GUIType type;
+        /** Zero-based page of the list screens; always 0 for the main menu. */
+        final int page;
 
         GUIContext(GUIType type) {
+            this(type, 0);
+        }
+
+        GUIContext(GUIType type, int page) {
             this.type = type;
+            this.page = page;
         }
     }
 

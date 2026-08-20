@@ -41,3 +41,6 @@ desktop.ini
 *~
 # Local documentation (not pushed)
 docs/internal/
+
+# Claude Code session files (local only)
+.claude/

@@ -5,6 +5,7 @@ import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
+import de.boondocksulfur.customjukebox.utils.GuiPageUtil;
 import de.boondocksulfur.customjukebox.utils.InputValidator;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
@@ -32,6 +33,21 @@ import java.util.concurrent.ConcurrentHashMap;
  * Thread-safe implementation using ConcurrentHashMap.
  */
 public class DiscEditorGUIv2 implements Listener {
+
+    /** First CustomModelData offered by the selector (matches disc.json defaults). */
+    private static final int MODEL_DATA_PRESET_BASE = 1001;
+    private static final int MODEL_DATA_PRESET_COUNT = 20;
+
+    // Category selector layout
+    private static final int CATEGORIES_PER_PAGE = 27;
+    private static final int CAT_FIRST_SLOT = 9;
+    private static final int CAT_LAST_SLOT = 36; // exclusive
+    private static final int CAT_SLOT_NONE = 4;
+    private static final int CAT_SLOT_BACK = 45;
+    private static final int CAT_SLOT_PREV = 46;
+    private static final int CAT_SLOT_PAGE = 48;
+    private static final int CAT_SLOT_CREATE = 49;
+    private static final int CAT_SLOT_NEXT = 52;
 
     private final CustomJukebox plugin;
     private final Map<UUID, EditorContext> activeEditors = new ConcurrentHashMap<>();
@@ -94,6 +110,10 @@ public class DiscEditorGUIv2 implements Listener {
      * Opens category selector GUI.
      */
     private void openCategorySelector(Player player, String discId) {
+        openCategorySelector(player, discId, 0);
+    }
+
+    private void openCategorySelector(Player player, String discId, int page) {
         Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§6§lSelect Category");
 
         // No category option
@@ -102,13 +122,14 @@ public class DiscEditorGUIv2 implements Listener {
             "§7Remove category from disc",
             "",
             "§e§lClick to select");
-        gui.setItem(4, noCategory);
+        gui.setItem(CAT_SLOT_NONE, noCategory);
 
-        // Existing categories
-        Collection<DiscCategory> categories = plugin.getDiscManager().getAllCategories();
-        int slot = 10;
+        // Existing categories (paged)
+        List<DiscCategory> categories = new ArrayList<>(plugin.getDiscManager().getAllCategories());
+        page = GuiPageUtil.clampPage(page, categories.size(), CATEGORIES_PER_PAGE);
+        int slot = CAT_FIRST_SLOT;
 
-        for (DiscCategory cat : categories) {
+        for (DiscCategory cat : GuiPageUtil.slice(categories, page, CATEGORIES_PER_PAGE)) {
             int discCount = plugin.getDiscManager().getDiscsByCategory(cat.getId()).size();
             ItemStack item = createEditorItem(Material.BOOKSHELF,
                 "§e" + cat.getDisplayName(),
@@ -116,9 +137,8 @@ public class DiscEditorGUIv2 implements Listener {
                 "§7Discs: §e" + discCount,
                 "",
                 "§e§lClick to select");
+            item = ItemUtil.withPdcString(item, ItemUtil.CATEGORY_ID_KEY, cat.getId());
             gui.setItem(slot++, item);
-
-            if (slot >= 35) break;
         }
 
         // Create new category
@@ -127,15 +147,20 @@ public class DiscEditorGUIv2 implements Listener {
             "§7Enter category ID via chat",
             "",
             "§e§lClick to create");
-        gui.setItem(49, createNew);
+        gui.setItem(CAT_SLOT_CREATE, createNew);
 
         // Back button
         ItemStack back = createEditorItem(Material.ARROW,
             "§7« Back",
             "§7Return to editor");
-        gui.setItem(45, back);
+        gui.setItem(CAT_SLOT_BACK, back);
 
-        activeEditors.put(player.getUniqueId(), new EditorContext(discId, EditorMode.CATEGORY_SELECTOR));
+        int pageCount = GuiPageUtil.pageCount(categories.size(), CATEGORIES_PER_PAGE);
+        gui.setItem(CAT_SLOT_PREV, GuiPageUtil.previousButton(page));
+        gui.setItem(CAT_SLOT_NEXT, GuiPageUtil.nextButton(page, pageCount));
+        gui.setItem(CAT_SLOT_PAGE, GuiPageUtil.pageIndicator(page, pageCount, categories.size(), "categories"));
+
+        activeEditors.put(player.getUniqueId(), new EditorContext(discId, EditorMode.CATEGORY_SELECTOR, false, page));
         player.openInventory(gui);
     }
 
@@ -145,16 +170,18 @@ public class DiscEditorGUIv2 implements Listener {
     private void openModelDataSelector(Player player, String discId) {
         Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§c§lSelect Model Data");
 
-        // Preset model data values
-        int[] modelDataValues = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
+        // Presets follow the 1001+ convention used by the bundled disc.json and
+        // the README. The old 1..20 list collided with nothing in a default
+        // setup but silently broke the texture mapping of every shipped disc.
         int slot = 10;
-
-        for (int value : modelDataValues) {
+        for (int value = MODEL_DATA_PRESET_BASE; value < MODEL_DATA_PRESET_BASE + MODEL_DATA_PRESET_COUNT; value++) {
+            String owner = discUsingModelData(value, discId);
             ItemStack item = createEditorItem(Material.MUSIC_DISC_13,
                 "§eModel Data: " + value,
-                "§7Click to select",
+                owner == null ? "§7Free" : "§cAlready used by §e" + owner,
                 "",
-                "§8Use this for custom textures");
+                "§8Use this for custom textures",
+                "§e§lClick to select");
             gui.setItem(slot++, item);
 
             if (slot >= 35) break;
@@ -279,7 +306,7 @@ public class DiscEditorGUIv2 implements Listener {
                 handleDurationSelectorClick(player, context.discId, slot, clicked);
                 break;
             case CATEGORY_SELECTOR:
-                handleCategorySelectorClick(player, context.discId, slot, clicked);
+                handleCategorySelectorClick(player, context.discId, slot, clicked, context.page);
                 break;
             case MODEL_DATA_SELECTOR:
                 handleModelDataSelectorClick(player, context.discId, slot, clicked);
@@ -459,8 +486,13 @@ public class DiscEditorGUIv2 implements Listener {
         return gui;
     }
 
-    private void handleCategorySelectorClick(Player player, String discId, int slot, ItemStack clicked) {
-        if (slot == 45) {
+    private void handleCategorySelectorClick(Player player, String discId, int slot, ItemStack clicked, int page) {
+        if (slot == CAT_SLOT_PREV || slot == CAT_SLOT_NEXT) {
+            openCategorySelector(player, discId, slot == CAT_SLOT_PREV ? page - 1 : page + 1);
+            return;
+        }
+
+        if (slot == CAT_SLOT_BACK) {
             // Back - stay in inventory, just change content
             CustomDisc disc = plugin.getDiscManager().getDisc(discId);
             if (disc != null) {
@@ -472,7 +504,7 @@ public class DiscEditorGUIv2 implements Listener {
             return;
         }
 
-        if (slot == 4) {
+        if (slot == CAT_SLOT_NONE) {
             // No category
             plugin.getDiscManager().updateDiscField(discId, "category", null);
             MessageUtil.sendMessage(player, "&a✓ Category removed");
@@ -486,7 +518,7 @@ public class DiscEditorGUIv2 implements Listener {
             return;
         }
 
-        if (slot == 49) {
+        if (slot == CAT_SLOT_CREATE) {
             // Create new category
             player.closeInventory();
             MessageUtil.sendMessage(player, "&7Enter new &eCategory ID &7in chat:");
@@ -495,25 +527,23 @@ public class DiscEditorGUIv2 implements Listener {
             return;
         }
 
-        // Select existing category - extract from lore
-        ItemMeta meta = clicked.getItemMeta();
-        if (meta != null && meta.hasLore()) {
-            List<String> lore = ItemUtil.getLore(meta);
-            for (String line : lore) {
-                if (line.startsWith("§7ID: §e")) {
-                    String catId = line.replace("§7ID: §e", "");
-                    plugin.getDiscManager().updateDiscField(discId, "category", catId);
-                    MessageUtil.sendMessage(player, "&a✓ Category set: &e" + catId);
-                    CustomDisc disc = plugin.getDiscManager().getDisc(discId);
-                    if (disc != null) {
-                        Inventory currentInv = player.getOpenInventory().getTopInventory();
-                        Inventory newInv = createMainEditor(disc);
-                        currentInv.setContents(newInv.getContents());
-                        activeEditors.put(player.getUniqueId(), new EditorContext(discId, EditorMode.MAIN_EDITOR));
-                    }
-                    return;
-                }
-            }
+        if (slot < CAT_FIRST_SLOT || slot >= CAT_LAST_SLOT) {
+            return;
+        }
+
+        // Select existing category - resolved from item data, not from lore text
+        String catId = ItemUtil.getPdcString(clicked, ItemUtil.CATEGORY_ID_KEY);
+        if (catId == null) {
+            return;
+        }
+        plugin.getDiscManager().updateDiscField(discId, "category", catId);
+        MessageUtil.sendMessage(player, "&a✓ Category set: &e" + catId);
+        CustomDisc disc = plugin.getDiscManager().getDisc(discId);
+        if (disc != null) {
+            Inventory currentInv = player.getOpenInventory().getTopInventory();
+            Inventory newInv = createMainEditor(disc);
+            currentInv.setContents(newInv.getContents());
+            activeEditors.put(player.getUniqueId(), new EditorContext(discId, EditorMode.MAIN_EDITOR));
         }
     }
 
@@ -691,7 +721,6 @@ public class DiscEditorGUIv2 implements Listener {
             return;
         }
 
-        boolean success = true;
         switch (field) {
             case "displayName":
                 plugin.getDiscManager().updateDiscField(discId, "displayName", input);
@@ -705,7 +734,6 @@ public class DiscEditorGUIv2 implements Listener {
                 if (!InputValidator.isValidSoundKey(input)) {
                     MessageUtil.sendMessage(player, "&cInvalid format! Use: namespace:sound_name (lowercase)");
                     MessageUtil.sendMessage(player, "&7Reopening editor...");
-                    success = false;
                 } else {
                     plugin.getDiscManager().updateDiscField(discId, "sound", input);
                     MessageUtil.sendMessage(player, "&a✓ Sound Key updated: &b" + input);
@@ -716,7 +744,6 @@ public class DiscEditorGUIv2 implements Listener {
                     int seconds = Integer.parseInt(input);
                     if (seconds <= 0) {
                         MessageUtil.sendMessage(player, "&cDuration must be greater than 0!");
-                        success = false;
                     } else {
                         plugin.getDiscManager().updateDiscField(discId, "durationTicks", seconds * 20);
                         MessageUtil.sendMessage(player, "&a✓ Duration updated: &e" + seconds + " seconds");
@@ -724,23 +751,26 @@ public class DiscEditorGUIv2 implements Listener {
                 } catch (NumberFormatException e) {
                     MessageUtil.sendMessage(player, "&cInvalid number!");
                     MessageUtil.sendMessage(player, "&7Reopening editor...");
-                    success = false;
                 }
                 break;
             case "modelData":
                 try {
                     int value = Integer.parseInt(input);
-                    if (value < 1) {
-                        MessageUtil.sendMessage(player, "&cModel Data must be at least 1!");
-                        success = false;
+                    if (value < 1 || value > InputValidator.MAX_CUSTOM_MODEL_DATA) {
+                        MessageUtil.sendMessage(player, "&cModel Data must be between 1 and "
+                            + InputValidator.MAX_CUSTOM_MODEL_DATA + "!");
                     } else {
+                        String owner = discUsingModelData(value, discId);
+                        if (owner != null) {
+                            MessageUtil.sendMessage(player, "&e⚠ Model Data " + value
+                                + " is already used by &e" + owner + "&e - both discs will share the texture.");
+                        }
                         plugin.getDiscManager().updateDiscField(discId, "customModelData", value);
                         MessageUtil.sendMessage(player, "&a✓ Model Data updated: &e" + value);
                     }
                 } catch (NumberFormatException e) {
                     MessageUtil.sendMessage(player, "&cInvalid number!");
                     MessageUtil.sendMessage(player, "&7Reopening editor...");
-                    success = false;
                 }
                 break;
             case "newCategory":
@@ -748,7 +778,6 @@ public class DiscEditorGUIv2 implements Listener {
                 if (!InputValidator.isValidCategoryId(categoryId)) {
                     MessageUtil.sendMessage(player, "&cInvalid category ID! Use letters, numbers, - and _ (max "
                         + InputValidator.MAX_CATEGORY_ID_LENGTH + " characters)");
-                    success = false;
                     break;
                 }
                 // Create category if it doesn't exist
@@ -776,6 +805,19 @@ public class DiscEditorGUIv2 implements Listener {
         chatInputMode.remove(player.getUniqueId());
     }
 
+    /**
+     * Returns the id of another disc already using this CustomModelData, or null
+     * if the value is free. Two discs sharing a value share their texture.
+     */
+    private String discUsingModelData(int value, String excludeDiscId) {
+        for (CustomDisc disc : plugin.getDiscManager().getAllDiscs()) {
+            if (disc.getCustomModelData() == value && !disc.getId().equals(excludeDiscId)) {
+                return disc.getId();
+            }
+        }
+        return null;
+    }
+
     private ItemStack createEditorItem(Material material, String name, String... lore) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
@@ -788,26 +830,29 @@ public class DiscEditorGUIv2 implements Listener {
     }
 
     private static class EditorContext {
-        String discId;
-        EditorMode mode;
-        boolean fromExternal; // True if opened from AdminGUI, false if from within DiscEditor
+        final String discId;
+        final EditorMode mode;
+        final boolean fromExternal; // True if opened from AdminGUI, false if from within DiscEditor
+        /** Zero-based page of the category selector; 0 everywhere else. */
+        final int page;
 
         EditorContext(String discId) {
-            this.discId = discId;
-            this.mode = EditorMode.MAIN_EDITOR;
-            this.fromExternal = false;
+            this(discId, EditorMode.MAIN_EDITOR, false, 0);
         }
 
         EditorContext(String discId, EditorMode mode) {
-            this.discId = discId;
-            this.mode = mode;
-            this.fromExternal = false;
+            this(discId, mode, false, 0);
         }
 
         EditorContext(String discId, EditorMode mode, boolean fromExternal) {
+            this(discId, mode, fromExternal, 0);
+        }
+
+        EditorContext(String discId, EditorMode mode, boolean fromExternal, int page) {
             this.discId = discId;
             this.mode = mode;
             this.fromExternal = fromExternal;
+            this.page = page;
         }
     }
 

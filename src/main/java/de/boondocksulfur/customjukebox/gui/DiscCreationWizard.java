@@ -6,13 +6,13 @@ import de.boondocksulfur.customjukebox.utils.InputValidator;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import io.papermc.paper.event.player.AsyncChatEvent;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Step-by-step chat wizard for creating new discs.
@@ -63,8 +63,21 @@ public class DiscCreationWizard implements Listener {
             return;
         }
 
+        // Only one message at a time may advance this session - AsyncChatEvent
+        // fires off the main thread, so two quick lines could otherwise both be
+        // processed against the same wizard step.
+        if (!session.claim()) {
+            return;
+        }
+
         // Process step
-        SchedulerUtil.runPlayerTask(plugin, player, () -> handleStep(player, session, input));
+        SchedulerUtil.runPlayerTask(plugin, player, () -> {
+            try {
+                handleStep(player, session, input);
+            } finally {
+                session.release();
+            }
+        });
     }
 
     private void handleStep(Player player, CreationSession session, String input) {
@@ -183,11 +196,11 @@ public class DiscCreationWizard implements Listener {
         if (!InputValidator.isValidSoundKey(input)) {
             if (input.length() > InputValidator.MAX_SOUND_KEY_LENGTH) {
                 MessageUtil.sendMessage(player, InputValidator.getLengthErrorMessage("Sound Key", InputValidator.MAX_SOUND_KEY_LENGTH));
-            } else if (!input.contains(":")) {
-                MessageUtil.sendMessage(player, "&cInvalid format! Sound key must contain ':'");
-                MessageUtil.sendMessage(player, "&7Example: &eminecraft:music_disc.my_disc");
             } else {
-                MessageUtil.sendMessage(player, "&cInvalid format! Use only lowercase letters, numbers, _ . and -");
+                // Both "namespace:key" and vanilla-style "music_disc.cat" are accepted,
+                // so the only way to land here is an illegal character.
+                MessageUtil.sendMessage(player, "&cInvalid format! Use only lowercase letters, numbers, _ . / and -");
+                MessageUtil.sendMessage(player, "&7Example: &eminecraft:music_disc.my_disc");
             }
             MessageUtil.sendMessage(player, "&7Please try again:");
             return;
@@ -278,8 +291,9 @@ public class DiscCreationWizard implements Listener {
     private void handleCustomModelData(Player player, CreationSession session, String input) {
         try {
             int modelData = Integer.parseInt(input);
-            if (modelData < 1) {
-                MessageUtil.sendMessage(player, "&cCustom Model Data must be at least 1!");
+            if (modelData < 1 || modelData > InputValidator.MAX_CUSTOM_MODEL_DATA) {
+                MessageUtil.sendMessage(player, "&cCustom Model Data must be between 1 and "
+                    + InputValidator.MAX_CUSTOM_MODEL_DATA + "!");
                 MessageUtil.sendMessage(player, "&7Please enter a valid number:");
                 return;
             }
@@ -350,5 +364,16 @@ public class DiscCreationWizard implements Listener {
         int durationSeconds;
         String category;
         int customModelData = 1;
+
+        /** Guards against two chat messages advancing the same session at once. */
+        private final AtomicBoolean processing = new AtomicBoolean(false);
+
+        boolean claim() {
+            return processing.compareAndSet(false, true);
+        }
+
+        void release() {
+            processing.set(false);
+        }
     }
 }

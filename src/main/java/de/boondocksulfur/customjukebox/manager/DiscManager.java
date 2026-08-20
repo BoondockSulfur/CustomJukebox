@@ -12,16 +12,16 @@ import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.model.DiscFragment;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.BackupUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.logging.Level;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,7 +34,8 @@ public class DiscManager {
 
     private static final int DISC_CONFIG_VERSION = 1; // Current disc.json version for migration support
     private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB max file size
-    private static final int MAX_CUSTOM_MODEL_DATA = 1000000; // Maximum allowed CustomModelData to prevent overflow
+    // Maximum allowed CustomModelData to prevent overflow in fragment calculation
+    private static final int MAX_CUSTOM_MODEL_DATA = de.boondocksulfur.customjukebox.utils.InputValidator.MAX_CUSTOM_MODEL_DATA;
 
     private final CustomJukebox plugin;
     private final Gson gson;
@@ -44,6 +45,11 @@ public class DiscManager {
     private final Map<String, DiscCategory> categories;
     private final Map<String, DiscPlaylist> playlists;
     private JsonObject discsConfig;
+    /**
+     * Guards edits to the {@link #discsConfig} tree and the snapshot taken for
+     * saving - see the note in ConfigManager. Blocks never call out.
+     */
+    private final Object configLock = new Object();
 
     public DiscManager(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -71,6 +77,10 @@ public class DiscManager {
      */
     private void loadDiscsFile() {
         try {
+            // A queued save must land before we read the file back
+            if (plugin.getConfigWriter() != null) {
+                plugin.getConfigWriter().flush();
+            }
             // Create plugin folder if it doesn't exist
             if (!plugin.getDataFolder().exists()) {
                 plugin.getDataFolder().mkdirs();
@@ -94,23 +104,27 @@ public class DiscManager {
                 throw new IOException("disc.json exceeds maximum file size of " + (MAX_FILE_SIZE / 1024 / 1024) + " MB");
             }
 
-            // Read disc.json
-            try (Reader reader = new FileReader(discsFile)) {
+            // Read disc.json (explicit UTF-8 - saveDiscsFile() writes UTF-8, so
+            // reading with the platform default would break on a non-UTF-8 JVM)
+            try (Reader reader = new InputStreamReader(new FileInputStream(discsFile), StandardCharsets.UTF_8)) {
                 this.discsConfig = gson.fromJson(reader, JsonObject.class);
             }
             if (discsConfig == null) {
                 discsConfig = new JsonObject();
             }
 
-            // Ensure "discs" object exists (guards against a corrupt non-object value)
-            if (discsConfig.has("discs") && !discsConfig.get("discs").isJsonObject()) {
-                discsConfig.add("discs", new JsonObject());
-            }
+            boolean addedKeys;
+            synchronized (configLock) {
+                // Ensure "discs" object exists (guards against a corrupt non-object value)
+                if (discsConfig.has("discs") && !discsConfig.get("discs").isJsonObject()) {
+                    discsConfig.add("discs", new JsonObject());
+                }
 
-            // Merge in structural keys added by newer plugin versions. The
-            // discs/categories/playlists maps are user content and are NEVER
-            // seeded from the defaults, so example entries stay deleted.
-            boolean addedKeys = mergeDefaults();
+                // Merge in structural keys added by newer plugin versions. The
+                // discs/categories/playlists maps are user content and are NEVER
+                // seeded from the defaults, so example entries stay deleted.
+                addedKeys = mergeDefaults();
+            }
 
             // Check and log disc.json version
             int fileVersion = discsConfig.has("version") ? discsConfig.get("version").getAsInt() : 0;
@@ -127,7 +141,9 @@ public class DiscManager {
             }
 
             if (versionChanged) {
-                discsConfig.addProperty("version", DISC_CONFIG_VERSION);
+                synchronized (configLock) {
+                    discsConfig.addProperty("version", DISC_CONFIG_VERSION);
+                }
             }
             if (addedKeys) {
                 plugin.getLogger().info("Added missing disc.json keys from defaults");
@@ -183,6 +199,10 @@ public class DiscManager {
 
         JsonObject categoriesSection = discsConfig.getAsJsonObject("categories");
         for (String categoryId : categoriesSection.keySet()) {
+            if (!categoriesSection.get(categoryId).isJsonObject()) {
+                plugin.getLogger().warning("Skipping malformed category '" + categoryId + "' in disc.json (not an object)");
+                continue;
+            }
             JsonObject categoryData = categoriesSection.getAsJsonObject(categoryId);
             String displayName = colorize(getString(categoryData, "displayName", categoryId));
             String description = colorize(getString(categoryData, "description", ""));
@@ -207,6 +227,10 @@ public class DiscManager {
 
         JsonObject playlistsSection = discsConfig.getAsJsonObject("playlists");
         for (String playlistId : playlistsSection.keySet()) {
+            if (!playlistsSection.get(playlistId).isJsonObject()) {
+                plugin.getLogger().warning("Skipping malformed playlist '" + playlistId + "' in disc.json (not an object)");
+                continue;
+            }
             JsonObject playlistData = playlistsSection.getAsJsonObject(playlistId);
             String displayName = colorize(getString(playlistData, "displayName", playlistId));
             String description = colorize(getString(playlistData, "description", ""));
@@ -243,6 +267,10 @@ public class DiscManager {
 
         // Load all discs from JSON
         for (String discId : discsSection.keySet()) {
+            if (!discsSection.get(discId).isJsonObject()) {
+                plugin.getLogger().warning("Skipping malformed disc '" + discId + "' in disc.json (not an object)");
+                continue;
+            }
             JsonObject discData = discsSection.getAsJsonObject(discId);
             CustomDisc disc = parseDiscFromJson(discId, discData);
 
@@ -311,6 +339,19 @@ public class DiscManager {
      * Creates a DiscFragment for a disc.
      * Uses a safer calculation for fragment CustomModelData to avoid conflicts.
      */
+    /**
+     * Adds or removes the fragment entry for a disc so the registry always
+     * matches the disc's current {@code fragmentCount}.
+     * @param disc disc whose fragment should be synchronised
+     */
+    private void syncFragment(CustomDisc disc) {
+        if (disc.hasFragments()) {
+            createFragment(disc);
+        } else {
+            fragments.remove(disc.getId());
+        }
+    }
+
     private void createFragment(CustomDisc disc) {
         String fragmentName = colorize("&7Fragment - " + de.boondocksulfur.customjukebox.utils.AdventureUtil.stripColor(disc.getDisplayName()));
 
@@ -335,159 +376,21 @@ public class DiscManager {
     /**
      * Saves current disc configuration to disc.json.
      */
+    /**
+     * Persists disc.json. The document is snapshotted here and written by the
+     * shared {@link de.boondocksulfur.customjukebox.utils.ConfigWriter} off the
+     * server thread; the write itself is atomic, so a failure leaves the
+     * previous file intact and there is nothing to restore.
+     */
     private void saveDiscsFile() {
-        File tempFile = new File(discsFile.getParentFile(), discsFile.getName() + ".tmp");
-
-        try {
-            // Create backup before saving
-            createBackup(discsFile);
-
-            // Ensure version is always set
+        JsonObject snapshot;
+        synchronized (configLock) {
             discsConfig.addProperty("version", DISC_CONFIG_VERSION);
-
-            // Write to temporary file first
-            try (Writer writer = new FileWriter(tempFile)) {
-                gson.toJson(discsConfig, writer);
-                writer.flush(); // Ensure all data is written
-            }
-
-            // Verify temp file was created and has content
-            if (!tempFile.exists() || tempFile.length() == 0) {
-                throw new IOException("Temporary file creation failed or file is empty");
-            }
-
-            // Atomic rename: use Files.move which handles replace on most platforms
-            // This is safer than delete+rename which can lose data if rename fails after delete
-            Files.move(tempFile.toPath(), discsFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-
-            plugin.getLogger().info("Saved disc configuration to disc.json");
-
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to save disc.json", e);
-
-            // Try to restore from backup if save failed
-            File latestBackup = getLatestBackup(discsFile);
-            if (latestBackup != null && latestBackup.exists()) {
-                try {
-                    Files.copy(latestBackup.toPath(), discsFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                    plugin.getLogger().warning("Restored disc.json from backup due to save failure");
-                    // Reload the config from the restored file
-                    loadDiscsFile();
-                } catch (IOException restoreException) {
-                    plugin.getLogger().severe("Failed to restore from backup: " + restoreException.getMessage());
-                }
-            }
-
-            // Clean up temp file if it still exists
-            if (tempFile.exists()) {
-                tempFile.delete();
-            }
+            snapshot = discsConfig.deepCopy();
         }
-    }
-
-    /**
-     * Creates a backup of the given file with timestamp.
-     * Automatically manages backup count (keeps only the last MAX_BACKUPS files).
-     * @param file File to backup
-     */
-    private void createBackup(File file) {
-        if (!file.exists()) {
-            return; // No file to backup
-        }
-
-        // Shared setting from config.json; 0 disables backups (and prunes existing)
-        int maxBackups = plugin.getConfigManager().getMaxBackups();
-        if (maxBackups <= 0) {
-            cleanupOldBackups(file, 0);
-            return;
-        }
-
-        try {
-            // Create backup filename with timestamp
-            SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss");
-            String timestamp = dateFormat.format(new Date());
-            String backupName = file.getName().replace(".json", "_backup_" + timestamp + ".json");
-            File backupFile = new File(file.getParentFile(), backupName);
-
-            // Copy file to backup
-            Files.copy(file.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-
-            if (plugin.getConfigManager().isDebug()) {
-                plugin.getLogger().info("Created backup: " + backupName);
-            }
-
-            // Clean up old backups
-            cleanupOldBackups(file, maxBackups);
-
-        } catch (IOException e) {
-            plugin.getLogger().warning("Failed to create backup for " + file.getName() + ": " + e.getMessage());
-        }
-    }
-
-    /**
-     * Removes old backup files, keeping only the most recent {@code maxBackups} files.
-     * @param originalFile The original file (used to find related backups)
-     * @param maxBackups Number of backups to keep (0 deletes all)
-     */
-    private void cleanupOldBackups(File originalFile, int maxBackups) {
-        File parentDir = originalFile.getParentFile();
-        if (parentDir == null || !parentDir.exists()) {
-            return;
-        }
-
-        // Find all backup files for this config
-        String baseName = originalFile.getName().replace(".json", "");
-        File[] backupFiles = parentDir.listFiles((dir, name) ->
-            name.startsWith(baseName + "_backup_") && name.endsWith(".json")
-        );
-
-        if (backupFiles == null || backupFiles.length <= maxBackups) {
-            return; // No cleanup needed
-        }
-
-        // Sort by modification time (oldest first)
-        Arrays.sort(backupFiles, (f1, f2) ->
-            Long.compare(f1.lastModified(), f2.lastModified())
-        );
-
-        // Delete oldest backups
-        int toDelete = backupFiles.length - maxBackups;
-        for (int i = 0; i < toDelete; i++) {
-            if (backupFiles[i].delete()) {
-                if (plugin.getConfigManager().isDebug()) {
-                    plugin.getLogger().info("Deleted old backup: " + backupFiles[i].getName());
-                }
-            }
-        }
-    }
-
-    /**
-     * Gets the latest backup file for the given original file.
-     * @param originalFile The original file (used to find related backups)
-     * @return The latest backup file, or null if no backups exist
-     */
-    private File getLatestBackup(File originalFile) {
-        File parentDir = originalFile.getParentFile();
-        if (parentDir == null || !parentDir.exists()) {
-            return null;
-        }
-
-        // Find all backup files for this config
-        String baseName = originalFile.getName().replace(".json", "");
-        File[] backupFiles = parentDir.listFiles((dir, name) ->
-            name.startsWith(baseName + "_backup_") && name.endsWith(".json")
-        );
-
-        if (backupFiles == null || backupFiles.length == 0) {
-            return null;
-        }
-
-        // Sort by modification time (newest first)
-        Arrays.sort(backupFiles, (f1, f2) ->
-            Long.compare(f2.lastModified(), f1.lastModified())
-        );
-
-        return backupFiles[0]; // Return the most recent backup
+        plugin.getConfigWriter().save(discsFile, snapshot,
+            plugin.getConfigManager().getMaxBackups(),
+            plugin.getConfigManager().getBackupMinIntervalMillis());
     }
 
     public void reload() {
@@ -546,9 +449,11 @@ public class DiscManager {
         CustomDisc disc = new CustomDisc(id, displayName, author, lore, discType,
             customModelData, soundKey, durationTicks, fragmentCount, description, category);
         discs.put(id, disc);
+        // Keep the fragment registry in sync - otherwise a disc added at runtime
+        // would have no craftable/droppable fragment until the next reload
+        syncFragment(disc);
 
         // Save to JSON
-        JsonObject discsSection = discsConfig.getAsJsonObject("discs");
         JsonObject discData = new JsonObject();
 
         discData.addProperty("displayName", displayName);
@@ -570,7 +475,12 @@ public class DiscManager {
             discData.addProperty("category", category);
         }
 
-        discsSection.add(id, discData);
+        synchronized (configLock) {
+            if (!discsConfig.has("discs") || !discsConfig.get("discs").isJsonObject()) {
+                discsConfig.add("discs", new JsonObject());
+            }
+            discsConfig.getAsJsonObject("discs").add(id, discData);
+        }
 
         saveDiscsFile();
 
@@ -586,9 +496,16 @@ public class DiscManager {
         }
 
         CustomDisc disc = discs.remove(id);
+        // Drop the fragment too - a leftover entry keeps handing out fragments
+        // (creeper drops, loot chests, /cjb fragment) for a disc that no longer
+        // exists, and those fragments can never be crafted into anything.
+        fragments.remove(id);
 
-        JsonObject discsSection = discsConfig.getAsJsonObject("discs");
-        discsSection.remove(id);
+        synchronized (configLock) {
+            if (discsConfig.has("discs") && discsConfig.get("discs").isJsonObject()) {
+                discsConfig.getAsJsonObject("discs").remove(id);
+            }
+        }
 
         saveDiscsFile();
 
@@ -679,12 +596,25 @@ public class DiscManager {
     }
 
     public List<CustomDisc> getDiscsFromPlaylist(String playlistId) {
-        DiscPlaylist playlist = playlists.get(playlistId);
-        if (playlist == null) {
-            return new ArrayList<>();
-        }
+        return resolveDiscs(playlists.get(playlistId));
+    }
 
+    /**
+     * Resolves a playlist's disc IDs to discs, skipping ones that no longer
+     * exist.
+     *
+     * <p>Works off the playlist object rather than looking its ID up in the
+     * registry, so ad-hoc playlists that were never registered - a player's
+     * favourites, for instance - resolve correctly too.
+     *
+     * @param playlist playlist to resolve, may be null
+     * @return the existing discs, in playlist order
+     */
+    public List<CustomDisc> resolveDiscs(DiscPlaylist playlist) {
         List<CustomDisc> result = new ArrayList<>();
+        if (playlist == null) {
+            return result;
+        }
         for (String discId : playlist.getDiscIds()) {
             CustomDisc disc = discs.get(discId);
             if (disc != null) {
@@ -730,6 +660,7 @@ public class DiscManager {
 
         playlists.remove(id);
         removePlaylistFromConfig(id);
+        notifyZonesPlaylistChanged(id);
         return true;
     }
 
@@ -768,6 +699,7 @@ public class DiscManager {
 
         playlists.put(playlistId, updatedPlaylist);
         savePlaylistToConfig(updatedPlaylist);
+        notifyZonesPlaylistChanged(playlistId);
         return true;
     }
 
@@ -799,6 +731,7 @@ public class DiscManager {
 
         playlists.put(playlistId, updatedPlaylist);
         savePlaylistToConfig(updatedPlaylist);
+        notifyZonesPlaylistChanged(playlistId);
         return true;
     }
 
@@ -830,8 +763,16 @@ public class DiscManager {
         playlists.remove(oldId);
         playlists.put(newId, renamedPlaylist);
 
-        removePlaylistFromConfig(oldId);
-        savePlaylistToConfig(renamedPlaylist);
+        // Batch both JSON edits into a single file write (and backup rotation)
+        synchronized (configLock) {
+            if (discsConfig.has("playlists") && discsConfig.get("playlists").isJsonObject()) {
+                discsConfig.getAsJsonObject("playlists").remove(oldId);
+            }
+        }
+        writePlaylistToConfig(renamedPlaylist);
+        saveDiscsFile();
+        // Zones still reference the old id and can no longer resolve it
+        notifyZonesPlaylistChanged(oldId);
         return true;
     }
 
@@ -848,13 +789,7 @@ public class DiscManager {
      * Callers batching several updates save once afterwards.
      */
     private void writePlaylistToConfig(DiscPlaylist playlist) {
-        if (!discsConfig.has("playlists")) {
-            discsConfig.add("playlists", new JsonObject());
-        }
-
-        JsonObject playlistsSection = discsConfig.getAsJsonObject("playlists");
         JsonObject playlistData = new JsonObject();
-
         playlistData.addProperty("displayName", playlist.getDisplayName());
         playlistData.addProperty("description", playlist.getDescription());
 
@@ -864,19 +799,24 @@ public class DiscManager {
         }
         playlistData.add("discs", discsArray);
 
-        playlistsSection.add(playlist.getId(), playlistData);
+        synchronized (configLock) {
+            if (!discsConfig.has("playlists") || !discsConfig.get("playlists").isJsonObject()) {
+                discsConfig.add("playlists", new JsonObject());
+            }
+            discsConfig.getAsJsonObject("playlists").add(playlist.getId(), playlistData);
+        }
     }
 
     /**
      * Removes a playlist from the config file.
      */
     private void removePlaylistFromConfig(String id) {
-        if (!discsConfig.has("playlists")) {
-            return;
+        synchronized (configLock) {
+            if (!discsConfig.has("playlists") || !discsConfig.get("playlists").isJsonObject()) {
+                return;
+            }
+            discsConfig.getAsJsonObject("playlists").remove(id);
         }
-
-        JsonObject playlistsSection = discsConfig.getAsJsonObject("playlists");
-        playlistsSection.remove(id);
         saveDiscsFile();
     }
 
@@ -965,6 +905,25 @@ public class DiscManager {
         return AdventureUtil.toLegacy(AdventureUtil.parseComponent(message));
     }
 
+    /**
+     * Lets live ambient zones pick up a playlist content change immediately.
+     * Null-guarded because DiscManager is constructed before AmbientZoneManager.
+     */
+    private void notifyZonesPlaylistChanged(String playlistId) {
+        AmbientZoneManager zones = plugin.getAmbientZoneManager();
+        if (zones != null) {
+            zones.refreshZonesUsingPlaylist(playlistId);
+        }
+    }
+
+    /** Same, for a change to a disc that playlists may reference. */
+    private void notifyZonesDiscChanged(String discId) {
+        AmbientZoneManager zones = plugin.getAmbientZoneManager();
+        if (zones != null) {
+            zones.refreshZonesUsingDisc(discId);
+        }
+    }
+
     // ==================== DISC CRUD OPERATIONS ====================
 
     /**
@@ -1011,13 +970,17 @@ public class DiscManager {
         }
 
         CustomDisc disc = discs.remove(id);
+        // Drop the fragment too (see removeDisc)
+        fragments.remove(id);
 
         // Remove the disc from all playlists so no dangling references remain.
         // JSON updates are batched; removeDiscFromConfig below saves the file once.
+        List<String> affectedPlaylists = new ArrayList<>();
         for (DiscPlaylist playlist : new ArrayList<>(playlists.values())) {
             if (!playlist.contains(id)) {
                 continue;
             }
+            affectedPlaylists.add(playlist.getId());
             List<String> newDiscIds = new ArrayList<>(playlist.getDiscIds());
             newDiscIds.remove(id);
             DiscPlaylist updatedPlaylist = new DiscPlaylist(
@@ -1032,6 +995,12 @@ public class DiscManager {
 
         removeDiscFromConfig(id);
 
+        // Playlists lost a track - rebuild any zone that was playing them.
+        // Done after the playlist updates above so the new contents are seen.
+        for (String playlistId : affectedPlaylists) {
+            notifyZonesPlaylistChanged(playlistId);
+        }
+
         // Fire event for companion plugins
         if (disc != null) {
             plugin.getServer().getPluginManager().callEvent(new DiscRemovedEvent(id, disc));
@@ -1041,55 +1010,95 @@ public class DiscManager {
     }
 
     /**
-     * Updates a single field of a disc.
+     * Updates a single field of a disc and persists the change.
+     *
+     * <p>Only the edited disc is rebuilt in memory. This used to call
+     * {@link #reload()}, which re-read disc.json from disk and rebuilt every
+     * disc, category and playlist (including the full validation log) after
+     * every single field edit in the GUI.
+     *
+     * @param id disc ID
+     * @param field field name (displayName, author, category, sound/soundKey,
+     *              durationTicks, customModelData, fragmentCount)
+     * @param value new value; String fields accept null to remove the key
+     * @return true if the field was known and the disc was updated
      */
     public boolean updateDiscField(String id, String field, Object value) {
         if (!discs.containsKey(id)) {
             return false;
         }
 
-        if (!discsConfig.has("discs")) {
+        if (!discsConfig.has("discs") || !discsConfig.get("discs").isJsonObject()) {
             return false;
         }
 
         JsonObject discsSection = discsConfig.getAsJsonObject("discs");
-        if (!discsSection.has(id)) {
+        if (!discsSection.has(id) || !discsSection.get(id).isJsonObject()) {
             return false;
         }
 
         JsonObject discData = discsSection.getAsJsonObject(id);
 
-        // Update field
-        switch (field) {
-            case "displayName":
-            case "author":
-            case "category":
-                if (value == null) {
-                    discData.remove(field);
-                } else {
-                    discData.addProperty(field, (String) value);
-                }
-                break;
-            case "sound":
-            case "soundKey": // Accept both, always write as "sound"
-                discData.remove("soundKey"); // Clean up legacy key if present
-                if (value == null) {
-                    discData.remove("sound");
-                } else {
-                    discData.addProperty("sound", (String) value);
-                }
-                break;
-            case "durationTicks":
-            case "customModelData":
-            case "fragmentCount":
-                discData.addProperty(field, (Integer) value);
-                break;
+        CustomDisc updated;
+        synchronized (configLock) {
+            // Update field
+            switch (field) {
+                case "displayName":
+                case "author":
+                case "category":
+                    if (value == null) {
+                        discData.remove(field);
+                    } else if (value instanceof String stringValue) {
+                        discData.addProperty(field, stringValue);
+                    } else {
+                        plugin.getLogger().warning("updateDiscField('" + field + "') expects a String, got "
+                            + value.getClass().getSimpleName());
+                        return false;
+                    }
+                    break;
+                case "sound":
+                case "soundKey": // Accept both, always write as "sound"
+                    discData.remove("soundKey"); // Clean up legacy key if present
+                    if (value == null) {
+                        discData.remove("sound");
+                    } else if (value instanceof String stringValue) {
+                        discData.addProperty("sound", stringValue);
+                    } else {
+                        plugin.getLogger().warning("updateDiscField('sound') expects a String, got "
+                            + value.getClass().getSimpleName());
+                        return false;
+                    }
+                    break;
+                case "durationTicks":
+                case "customModelData":
+                case "fragmentCount":
+                    if (value instanceof Integer intValue) {
+                        discData.addProperty(field, intValue);
+                    } else {
+                        plugin.getLogger().warning("updateDiscField('" + field + "') expects an Integer, got "
+                            + (value == null ? "null" : value.getClass().getSimpleName()));
+                        return false;
+                    }
+                    break;
+                default:
+                    plugin.getLogger().warning("updateDiscField: unknown field '" + field + "'");
+                    return false;
+            }
+
+            // Rebuild just this disc from its (now updated) JSON entry, using the
+            // same parse path as loading, so colorization and defaults match.
+            updated = parseDiscFromJson(id, discData);
         }
+        if (updated == null) {
+            plugin.getLogger().severe("Failed to re-parse disc '" + id + "' after updating '" + field + "'");
+            return false;
+        }
+        discs.put(id, updated);
+        syncFragment(updated);
 
         saveDiscsFile();
-
-        // Reload disc
-        reload();
+        // A changed sound key or duration changes what zones can play
+        notifyZonesDiscChanged(id);
         return true;
     }
 
@@ -1097,11 +1106,6 @@ public class DiscManager {
      * Saves a disc to the config file.
      */
     private void saveDiscToConfig(CustomDisc disc) {
-        if (!discsConfig.has("discs")) {
-            discsConfig.add("discs", new JsonObject());
-        }
-
-        JsonObject discsSection = discsConfig.getAsJsonObject("discs");
         JsonObject discData = new JsonObject();
 
         discData.addProperty("displayName", disc.getDisplayName());
@@ -1122,7 +1126,12 @@ public class DiscManager {
             discData.add("lore", loreArray);
         }
 
-        discsSection.add(disc.getId(), discData);
+        synchronized (configLock) {
+            if (!discsConfig.has("discs") || !discsConfig.get("discs").isJsonObject()) {
+                discsConfig.add("discs", new JsonObject());
+            }
+            discsConfig.getAsJsonObject("discs").add(disc.getId(), discData);
+        }
         saveDiscsFile();
     }
 
@@ -1130,12 +1139,12 @@ public class DiscManager {
      * Removes a disc from the config file.
      */
     private void removeDiscFromConfig(String id) {
-        if (!discsConfig.has("discs")) {
-            return;
+        synchronized (configLock) {
+            if (!discsConfig.has("discs") || !discsConfig.get("discs").isJsonObject()) {
+                return;
+            }
+            discsConfig.getAsJsonObject("discs").remove(id);
         }
-
-        JsonObject discsSection = discsConfig.getAsJsonObject("discs");
-        discsSection.remove(id);
         saveDiscsFile();
     }
 
@@ -1162,18 +1171,25 @@ public class DiscManager {
      * Saves a category to the config file.
      */
     private void saveCategoryToConfig(DiscCategory category) {
-        if (!discsConfig.has("categories")) {
-            discsConfig.add("categories", new JsonObject());
-        }
+        writeCategoryToConfig(category);
+        saveDiscsFile();
+    }
 
-        JsonObject categoriesSection = discsConfig.getAsJsonObject("categories");
+    /**
+     * Writes a category into the in-memory JSON config without saving the file.
+     * Callers batching several updates save once afterwards.
+     */
+    private void writeCategoryToConfig(DiscCategory category) {
         JsonObject categoryData = new JsonObject();
-
         categoryData.addProperty("displayName", category.getDisplayName());
         categoryData.addProperty("description", category.getDescription());
 
-        categoriesSection.add(category.getId(), categoryData);
-        saveDiscsFile();
+        synchronized (configLock) {
+            if (!discsConfig.has("categories") || !discsConfig.get("categories").isJsonObject()) {
+                discsConfig.add("categories", new JsonObject());
+            }
+            discsConfig.getAsJsonObject("categories").add(category.getId(), categoryData);
+        }
     }
 
     /**
@@ -1184,16 +1200,13 @@ public class DiscManager {
             return false; // Category doesn't exist
         }
 
-        // Remove old category
-        categories.remove(id);
-        removeCategoryFromConfig(id);
-
-        // Create updated category with same ID
+        // Replace in place - the previous remove+add wrote disc.json twice
+        // (and rotated two backups) for a single edit.
         DiscCategory updatedCategory = new DiscCategory(id, newDisplayName, newDescription);
         categories.put(id, updatedCategory);
 
-        // Save to JSON
-        saveCategoryToConfig(updatedCategory);
+        writeCategoryToConfig(updatedCategory);
+        saveDiscsFile();
         return true;
     }
 
@@ -1211,38 +1224,28 @@ public class DiscManager {
         // JSON config and in memory (CustomDisc is immutable, so affected discs
         // are replaced with detached copies). One save persists everything -
         // no full reload, which would briefly empty the registries on Folia.
-        if (discsConfig.has("discs")) {
-            JsonObject discsSection = discsConfig.getAsJsonObject("discs");
-            for (CustomDisc disc : new ArrayList<>(discs.values())) {
-                if (!id.equals(disc.getCategory())) continue;
-                if (discsSection.has(disc.getId())) {
-                    discsSection.getAsJsonObject(disc.getId()).remove("category");
+        synchronized (configLock) {
+        if (discsConfig.has("discs") && discsConfig.get("discs").isJsonObject()) {
+                JsonObject discsSection = discsConfig.getAsJsonObject("discs");
+                for (CustomDisc disc : new ArrayList<>(discs.values())) {
+                    if (!id.equals(disc.getCategory())) continue;
+                    if (discsSection.has(disc.getId()) && discsSection.get(disc.getId()).isJsonObject()) {
+                        discsSection.getAsJsonObject(disc.getId()).remove("category");
+                    }
+                    discs.put(disc.getId(), new CustomDisc(disc.getId(), disc.getDisplayName(),
+                        disc.getAuthor(), disc.getLore(), disc.getDiscType(), disc.getCustomModelData(),
+                        disc.getSoundKey(), disc.getDurationTicks(), disc.getFragmentCount(),
+                        disc.getDescription(), null));
                 }
-                discs.put(disc.getId(), new CustomDisc(disc.getId(), disc.getDisplayName(),
-                    disc.getAuthor(), disc.getLore(), disc.getDiscType(), disc.getCustomModelData(),
-                    disc.getSoundKey(), disc.getDurationTicks(), disc.getFragmentCount(),
-                    disc.getDescription(), null));
             }
-        }
 
-        if (discsConfig.has("categories")) {
-            discsConfig.getAsJsonObject("categories").remove(id);
+            if (discsConfig.has("categories") && discsConfig.get("categories").isJsonObject()) {
+                discsConfig.getAsJsonObject("categories").remove(id);
+            }
         }
         saveDiscsFile();
 
         return true;
     }
 
-    /**
-     * Removes a category from the config file.
-     */
-    private void removeCategoryFromConfig(String id) {
-        if (!discsConfig.has("categories")) {
-            return;
-        }
-
-        JsonObject categoriesSection = discsConfig.getAsJsonObject("categories");
-        categoriesSection.remove(id);
-        saveDiscsFile();
-    }
 }

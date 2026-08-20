@@ -35,6 +35,7 @@ public class SchedulerUtil {
     private static final String REGION_SCHEDULER_CLASS = "io.papermc.paper.threadedregions.scheduler.RegionScheduler";
     private static final String ENTITY_SCHEDULER_CLASS = "io.papermc.paper.threadedregions.scheduler.EntityScheduler";
     private static final String ASYNC_SCHEDULER_CLASS = "io.papermc.paper.threadedregions.scheduler.AsyncScheduler";
+    private static final String GLOBAL_SCHEDULER_CLASS = "io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler";
     private static final String SCHEDULED_TASK_CLASS = "io.papermc.paper.threadedregions.scheduler.ScheduledTask";
 
     // Cached reflection handles (playback hot path schedules/cancels frequently)
@@ -45,6 +46,9 @@ public class SchedulerUtil {
     private static volatile Method entityRunDelayed;
     private static volatile Method entityRun;
     private static volatile Method scheduledTaskCancel;
+    private static volatile Object globalScheduler;
+    private static volatile Method globalRunDelayed;
+    private static volatile Method globalRunAtFixedRate;
 
     /**
      * Platform-independent handle for a scheduled task.
@@ -352,6 +356,100 @@ public class SchedulerUtil {
         } else {
             // Paper/Spigot: Use async scheduler
             Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, task, delayTicks);
+        }
+    }
+
+    private static Object getGlobalScheduler() throws Exception {
+        Object scheduler = globalScheduler;
+        if (scheduler == null) {
+            scheduler = Bukkit.class.getMethod("getGlobalRegionScheduler").invoke(null);
+            globalScheduler = scheduler;
+        }
+        return scheduler;
+    }
+
+    private static Method globalRunDelayedMethod() throws Exception {
+        Method method = globalRunDelayed;
+        if (method == null) {
+            method = Class.forName(GLOBAL_SCHEDULER_CLASS)
+                .getMethod("runDelayed", Plugin.class, Consumer.class, long.class);
+            globalRunDelayed = method;
+        }
+        return method;
+    }
+
+    private static Method globalRunAtFixedRateMethod() throws Exception {
+        Method method = globalRunAtFixedRate;
+        if (method == null) {
+            method = Class.forName(GLOBAL_SCHEDULER_CLASS)
+                .getMethod("runAtFixedRate", Plugin.class, Consumer.class, long.class, long.class);
+            globalRunAtFixedRate = method;
+        }
+        return method;
+    }
+
+    /**
+     * Runs a task later on the global thread (not tied to any location/region).
+     * On Folia: Uses the global region scheduler.
+     * On Paper: Uses the global scheduler.
+     *
+     * <p>Use this for server-wide bookkeeping (e.g. an ambient-zone track timer)
+     * that then dispatches per-player work via {@link #runPlayerTask}.
+     *
+     * @param plugin Plugin instance
+     * @param task Task to run
+     * @param delayTicks Delay in ticks (Folia requires at least 1; clamped up)
+     * @return Cancellable task handle (null only if scheduling failed)
+     */
+    public static TaskHandle runGlobalLater(Plugin plugin, Runnable task, long delayTicks) {
+        long delay = Math.max(1, delayTicks);
+        if (isFolia()) {
+            try {
+                Object scheduledTask = globalRunDelayedMethod()
+                    .invoke(getGlobalScheduler(), plugin, (Consumer<Object>) st -> task.run(), delay);
+                return wrapFoliaTask(scheduledTask);
+            } catch (Exception e) {
+                plugin.getLogger().severe("CRITICAL: Folia global scheduler API has changed! Error: " + e.getMessage());
+                return fallbackRunLater(plugin, task, delay);
+            }
+        } else {
+            BukkitTask bukkitTask = Bukkit.getScheduler().runTaskLater(plugin, task, delay);
+            return bukkitTask::cancel;
+        }
+    }
+
+    /**
+     * Runs a repeating task on the global thread.
+     * On Folia: Uses the global region scheduler's fixed-rate runner.
+     * On Paper: Uses the global scheduler's repeating timer.
+     *
+     * @param plugin Plugin instance
+     * @param task Task to run each period
+     * @param initialDelayTicks Delay before the first run (Folia requires at least 1)
+     * @param periodTicks Ticks between runs (Folia requires at least 1)
+     * @return Cancellable task handle (null only if scheduling failed)
+     */
+    public static TaskHandle runGlobalTimer(Plugin plugin, Runnable task, long initialDelayTicks, long periodTicks) {
+        long initial = Math.max(1, initialDelayTicks);
+        long period = Math.max(1, periodTicks);
+        if (isFolia()) {
+            try {
+                Object scheduledTask = globalRunAtFixedRateMethod()
+                    .invoke(getGlobalScheduler(), plugin, (Consumer<Object>) st -> task.run(), initial, period);
+                return wrapFoliaTask(scheduledTask);
+            } catch (Exception e) {
+                plugin.getLogger().severe("CRITICAL: Folia global scheduler API has changed! Error: " + e.getMessage());
+                try {
+                    BukkitTask bukkitTask = Bukkit.getScheduler().runTaskTimer(plugin, task, initial, period);
+                    return bukkitTask::cancel;
+                } catch (Exception fallbackException) {
+                    plugin.getLogger().severe("Fallback timer also failed: " + fallbackException.getMessage());
+                    return null;
+                }
+            }
+        } else {
+            BukkitTask bukkitTask = Bukkit.getScheduler().runTaskTimer(plugin, task, initial, period);
+            return bukkitTask::cancel;
         }
     }
 

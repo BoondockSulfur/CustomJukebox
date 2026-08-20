@@ -202,6 +202,48 @@ public class IntegrationManager {
     }
 
     /**
+     * Checks whether a location lies inside a named WorldGuard region.
+     * Used by ambient zones to decide membership. Returns false (rather than
+     * failing open) when WorldGuard is unavailable or the region can't be
+     * resolved, so a mis-typed region name simply plays to nobody instead of
+     * everybody.
+     *
+     * @param location Location to test (its world is used to find the region manager)
+     * @param regionName WorldGuard region id (case-insensitive)
+     * @return true if the location is inside the region
+     */
+    public boolean isInRegion(Location location, String regionName) {
+        if (!worldGuardEnabled || location == null || location.getWorld() == null
+                || regionName == null || regionName.isEmpty()) {
+            return false;
+        }
+
+        try {
+            RegionContainer container = WorldGuard.getInstance().getPlatform().getRegionContainer();
+            com.sk89q.worldguard.protection.managers.RegionManager regions =
+                container.get(BukkitAdapter.adapt(location.getWorld()));
+            if (regions == null) {
+                return false;
+            }
+
+            com.sk89q.worldedit.math.BlockVector3 point = BukkitAdapter.asBlockVector(location);
+            com.sk89q.worldguard.protection.ApplicableRegionSet applicable = regions.getApplicableRegions(point);
+            for (com.sk89q.worldguard.protection.regions.ProtectedRegion region : applicable) {
+                if (region.getId().equalsIgnoreCase(regionName)) {
+                    return true;
+                }
+            }
+            return false;
+
+        } catch (Exception e) {
+            if (plugin.getConfigManager().isDebug()) {
+                plugin.getLogger().log(Level.WARNING, "WorldGuard region check failed for '" + regionName + "'", e);
+            }
+            return false;
+        }
+    }
+
+    /**
      * Checks if WorldGuard integration is enabled and available.
      * @return true if WorldGuard is active
      */

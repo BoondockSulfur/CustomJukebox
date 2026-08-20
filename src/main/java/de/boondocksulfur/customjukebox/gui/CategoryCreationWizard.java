@@ -4,14 +4,15 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
+import de.boondocksulfur.customjukebox.utils.InputValidator;
 import io.papermc.paper.event.player.AsyncChatEvent;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Step-by-step chat wizard for creating new categories.
@@ -66,41 +67,57 @@ public class CategoryCreationWizard implements Listener {
             return;
         }
 
+        // Only one message at a time may advance this session
+        if (!session.claim()) {
+            return;
+        }
+
         // Handle confirmation step (step 3)
         if (session.currentStep == 3) {
             if (input.equalsIgnoreCase("confirm")) {
                 SchedulerUtil.runPlayerTask(plugin, player, () -> {
-                    // Re-check permission - it may have been revoked mid-wizard
-                    if (!player.hasPermission("customjukebox.admin")) {
-                        MessageUtil.sendMessage(player, "&cYou no longer have permission to create categories!");
+                    try {
+                        // Re-check permission - it may have been revoked mid-wizard
+                        if (!player.hasPermission("customjukebox.admin")) {
+                            MessageUtil.sendMessage(player, "&cYou no longer have permission to create categories!");
+                            activeSessions.remove(player.getUniqueId());
+                            return;
+                        }
+
+                        boolean success = plugin.getDiscManager().createCategory(
+                            session.categoryId,
+                            session.displayName,
+                            session.description
+                        );
+
+                        if (success) {
+                            MessageUtil.sendMessage(player, "");
+                            MessageUtil.sendMessage(player, "&a&l✓ &aCategory &e" + session.categoryId + " &acreated successfully!");
+                            MessageUtil.sendMessage(player, "");
+                        } else {
+                            MessageUtil.sendMessage(player, "&c&l✗ &cFailed to create category! Please try again.");
+                        }
+
                         activeSessions.remove(player.getUniqueId());
-                        return;
+                    } finally {
+                        session.release();
                     }
-
-                    boolean success = plugin.getDiscManager().createCategory(
-                        session.categoryId,
-                        session.displayName,
-                        session.description
-                    );
-
-                    if (success) {
-                        MessageUtil.sendMessage(player, "");
-                        MessageUtil.sendMessage(player, "&a&l✓ &aCategory &e" + session.categoryId + " &acreated successfully!");
-                        MessageUtil.sendMessage(player, "");
-                    } else {
-                        MessageUtil.sendMessage(player, "&c&l✗ &cFailed to create category! Please try again.");
-                    }
-
-                    activeSessions.remove(player.getUniqueId());
                 });
             } else {
                 MessageUtil.sendMessage(player, "&cInvalid input! Type &aconfirm &cor &ccancel");
+                session.release();
             }
             return;
         }
 
         // Process other steps
-        SchedulerUtil.runPlayerTask(plugin, player, () -> handleStep(player, session, input));
+        SchedulerUtil.runPlayerTask(plugin, player, () -> {
+            try {
+                handleStep(player, session, input);
+            } finally {
+                session.release();
+            }
+        });
     }
 
     private void handleStep(Player player, CreationSession session, String input) {
@@ -125,20 +142,25 @@ public class CategoryCreationWizard implements Listener {
     }
 
     private void handleCategoryId(Player player, CreationSession session, String input) {
-        // Validate ID
-        if (!input.matches("[a-z0-9_-]+")) {
-            MessageUtil.sendMessage(player, "&cInvalid ID! Use only lowercase letters, numbers, _ and -");
+        // Normalize the same way the disc editor's inline category creation does
+        String categoryId = input.toLowerCase(Locale.ROOT).replace(" ", "_");
+
+        // Validate format AND length - the length limit was previously missing
+        // here, so arbitrarily long IDs could be written into disc.json
+        if (!InputValidator.isValidCategoryId(categoryId)) {
+            MessageUtil.sendMessage(player, "&cInvalid ID! Use only letters, numbers, _ and - (max "
+                + InputValidator.MAX_CATEGORY_ID_LENGTH + " characters)");
             MessageUtil.sendMessage(player, "&7Please try again:");
             return;
         }
 
-        if (plugin.getDiscManager().getCategory(input) != null) {
-            MessageUtil.sendMessage(player, "&cA category with ID &e" + input + " &calready exists!");
+        if (plugin.getDiscManager().getCategory(categoryId) != null) {
+            MessageUtil.sendMessage(player, "&cA category with ID &e" + categoryId + " &calready exists!");
             MessageUtil.sendMessage(player, "&7Please choose a different ID:");
             return;
         }
 
-        session.categoryId = input;
+        session.categoryId = categoryId;
         session.currentStep++;
 
         MessageUtil.sendMessage(player, "");
@@ -154,6 +176,13 @@ public class CategoryCreationWizard implements Listener {
     }
 
     private void handleDisplayName(Player player, CreationSession session, String input) {
+        if (!InputValidator.isValidLength(input, InputValidator.MAX_CATEGORY_NAME_LENGTH)) {
+            MessageUtil.sendMessage(player,
+                InputValidator.getLengthErrorMessage("Display Name", InputValidator.MAX_CATEGORY_NAME_LENGTH));
+            MessageUtil.sendMessage(player, "&7Please try again:");
+            return;
+        }
+
         // Translate color codes (supports legacy, HEX, gradients)
         String displayName = AdventureUtil.toLegacy(AdventureUtil.parseComponent(input));
         session.displayName = displayName;
@@ -172,6 +201,13 @@ public class CategoryCreationWizard implements Listener {
     }
 
     private void handleDescription(Player player, CreationSession session, String input) {
+        if (!InputValidator.isValidLength(input, InputValidator.MAX_DESCRIPTION_LENGTH)) {
+            MessageUtil.sendMessage(player,
+                InputValidator.getLengthErrorMessage("Description", InputValidator.MAX_DESCRIPTION_LENGTH));
+            MessageUtil.sendMessage(player, "&7Please try again:");
+            return;
+        }
+
         String description = input.equalsIgnoreCase("skip") ? "" : AdventureUtil.toLegacy(AdventureUtil.parseComponent(input));
         session.description = description;
 
@@ -212,5 +248,20 @@ public class CategoryCreationWizard implements Listener {
         String categoryId;
         String displayName;
         String description;
+
+        /**
+         * Guards against two chat messages being handled for the same session at
+         * once. AsyncChatEvent fires off the main thread, so a player spamming
+         * two lines could otherwise have both processed against the same step.
+         */
+        private final AtomicBoolean processing = new AtomicBoolean(false);
+
+        boolean claim() {
+            return processing.compareAndSet(false, true);
+        }
+
+        void release() {
+            processing.set(false);
+        }
     }
 }

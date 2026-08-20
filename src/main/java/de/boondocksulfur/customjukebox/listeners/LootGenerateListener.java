@@ -77,14 +77,19 @@ public class LootGenerateListener implements Listener {
             return;
         }
 
-        // Random chance to add fragments
-        double lootChance = plugin.getConfigManager().getLootChance();
-        if (random.nextDouble() > lootChance) {
+        // Number of fragment stacks to add; 0 disables loot fragments entirely
+        // (nextInt() below requires a positive bound)
+        int maxStacks = plugin.getConfigManager().getMaxLootDiscs(); // Reuse config value
+        if (maxStacks <= 0) {
             return;
         }
 
-        // Add random fragments
-        int maxStacks = plugin.getConfigManager().getMaxLootDiscs(); // Reuse config value
+        // Random chance to add fragments (0.0 must never roll true)
+        double lootChance = plugin.getConfigManager().getLootChance();
+        if (lootChance <= 0.0 || random.nextDouble() >= lootChance) {
+            return;
+        }
+
         int stacksToAdd = random.nextInt(maxStacks) + 1;
 
         for (int i = 0; i < stacksToAdd; i++) {

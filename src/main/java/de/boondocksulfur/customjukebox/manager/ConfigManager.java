@@ -4,19 +4,18 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import de.boondocksulfur.customjukebox.CustomJukebox;
-import de.boondocksulfur.customjukebox.utils.AdventureUtil;
+import de.boondocksulfur.customjukebox.utils.BackupUtil;
 import de.boondocksulfur.customjukebox.utils.JsonConfigUtil;
-import org.bukkit.ChatColor;
+import org.bukkit.SoundCategory;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.text.SimpleDateFormat;
-import java.util.Arrays;
-import java.util.Date;
 
 /**
  * Manages plugin configuration from config.json (JEXT-compatible JSON format).
@@ -27,11 +26,20 @@ public class ConfigManager {
     private static final int CONFIG_VERSION = 1; // Current config version for migration support
     private static final int DEFAULT_MAX_BACKUPS = 5; // Default backups kept per file
     private static final int MAX_BACKUPS_LIMIT = 100; // Hard cap to avoid runaway backup counts
+    private static final int DEFAULT_BACKUP_MIN_INTERVAL_MINUTES = 5; // Throttle between backups
+    private static final int MAX_BACKUP_MIN_INTERVAL_MINUTES = 1440; // 24 h hard cap
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB max file size for config
 
     private final CustomJukebox plugin;
     private final Gson gson;
     private final File configFile;
+    /**
+     * Guards edits to the {@link #config} tree and the snapshot taken for saving.
+     * Gson's JsonObject is not thread-safe and on Folia two region threads can
+     * run config-changing commands at the same time. Blocks are kept short and
+     * never call out, so no lock ordering can arise.
+     */
+    private final Object configLock = new Object();
     // volatile: read from region threads on Folia while /cjb reload may replace them
     private volatile JsonObject config;
 
@@ -44,17 +52,21 @@ public class ConfigManager {
         volumeBeforeMute = (float) getDouble("playback.volume-before-mute", 4.0);
     }
 
-    private void saveMuteState() {
-        try {
-            if (!config.has("playback")) {
+    /**
+     * Writes the current volume and mute state into the in-memory config.
+     * Callers persist afterwards with a single {@link #save()} - volume and mute
+     * state always change together, and two saves would mean two file writes
+     * (and two backup rotations) for one logical operation.
+     */
+    private void writePlaybackState(float volume) {
+        synchronized (configLock) {
+            if (!config.has("playback") || !config.get("playback").isJsonObject()) {
                 config.add("playback", new JsonObject());
             }
             JsonObject playback = config.getAsJsonObject("playback");
+            playback.addProperty("volume", volume);
             playback.addProperty("muted", isMuted);
             playback.addProperty("volume-before-mute", volumeBeforeMute);
-            save();
-        } catch (Exception e) {
-            plugin.getLogger().warning("Failed to save mute state: " + e.getMessage());
         }
     }
 
@@ -76,6 +88,10 @@ public class ConfigManager {
      */
     private void loadConfig() {
         try {
+            // A queued save must land before we read the file back
+            if (plugin.getConfigWriter() != null) {
+                plugin.getConfigWriter().flush();
+            }
             // Create plugin folder if it doesn't exist
             if (!plugin.getDataFolder().exists()) {
                 plugin.getDataFolder().mkdirs();
@@ -99,8 +115,9 @@ public class ConfigManager {
                 throw new IOException("config.json exceeds maximum file size of " + (MAX_FILE_SIZE / 1024 / 1024) + " MB");
             }
 
-            // Read config.json
-            try (Reader reader = new FileReader(configFile)) {
+            // Read config.json (explicit UTF-8 - save() writes UTF-8, so reading
+            // with the platform default would break on a non-UTF-8 JVM default)
+            try (Reader reader = new InputStreamReader(new FileInputStream(configFile), StandardCharsets.UTF_8)) {
                 this.config = gson.fromJson(reader, JsonObject.class);
             }
             if (config == null) {
@@ -109,7 +126,10 @@ public class ConfigManager {
 
             // Merge in any keys added by newer plugin versions (e.g. new
             // playback options) without overwriting the user's existing values
-            boolean addedKeys = mergeDefaults();
+            boolean addedKeys;
+            synchronized (configLock) {
+                addedKeys = mergeDefaults();
+            }
 
             // Check and log config version
             int fileVersion = getInt("version", 0);
@@ -126,7 +146,9 @@ public class ConfigManager {
             }
 
             if (versionChanged) {
-                config.addProperty("version", CONFIG_VERSION);
+                synchronized (configLock) {
+                    config.addProperty("version", CONFIG_VERSION);
+                }
             }
             if (addedKeys) {
                 plugin.getLogger().info("Added missing config keys from defaults");
@@ -182,28 +204,15 @@ public class ConfigManager {
      * disk during the write can never leave a truncated config.json behind.
      */
     public void save() {
-        try {
-            // Create backup before saving
-            createBackup(configFile);
-
+        JsonObject snapshot;
+        synchronized (configLock) {
             // Ensure version is always set
             config.addProperty("version", CONFIG_VERSION);
-
-            Path configPath = configFile.toPath();
-            Path tempPath = configPath.resolveSibling(configFile.getName() + ".tmp");
-
-            try (Writer writer = Files.newBufferedWriter(tempPath, StandardCharsets.UTF_8)) {
-                gson.toJson(config, writer);
-            }
-
-            try {
-                Files.move(tempPath, configPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(tempPath, configPath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to save config.json", e);
+            // Copy on the calling thread so later edits cannot change what the
+            // writer thread ends up persisting
+            snapshot = config.deepCopy();
         }
+        plugin.getConfigWriter().save(configFile, snapshot, getMaxBackups(), getBackupMinIntervalMillis());
     }
 
     /**
@@ -218,71 +227,20 @@ public class ConfigManager {
     }
 
     /**
-     * Creates a backup of the given file with timestamp.
-     * Automatically manages backup count (keeps only the last {@code getMaxBackups()} files).
-     * @param file File to backup
+     * Minimum age of the newest existing backup before another one is taken,
+     * in milliseconds. Configurable via {@code settings.backup-min-interval-minutes};
+     * {@code 0} backs up on every single save (the pre-3.3.0 behaviour).
+     *
+     * <p>Without a throttle a short GUI editing session rotated the entire
+     * retained history away within a few clicks, because every button press
+     * saves the file it belongs to.
+     *
+     * @return throttle interval in milliseconds
      */
-    private void createBackup(File file) {
-        if (!file.exists()) {
-            return; // No file to backup
-        }
-
-        int maxBackups = getMaxBackups();
-        if (maxBackups <= 0) {
-            // Backups disabled - also prune any that already exist
-            cleanupOldBackups(file, 0);
-            return;
-        }
-
-        try {
-            // Create backup filename with timestamp
-            SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss");
-            String timestamp = dateFormat.format(new Date());
-            String backupName = file.getName().replace(".json", "_backup_" + timestamp + ".json");
-            File backupFile = new File(file.getParentFile(), backupName);
-
-            // Copy file to backup
-            Files.copy(file.toPath(), backupFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-
-            // Clean up old backups
-            cleanupOldBackups(file, maxBackups);
-
-        } catch (IOException e) {
-            plugin.getLogger().warning("Failed to create backup for " + file.getName() + ": " + e.getMessage());
-        }
-    }
-
-    /**
-     * Removes old backup files, keeping only the most recent {@code maxBackups} files.
-     * @param originalFile The original file (used to find related backups)
-     * @param maxBackups Number of backups to keep (0 deletes all)
-     */
-    private void cleanupOldBackups(File originalFile, int maxBackups) {
-        File parentDir = originalFile.getParentFile();
-        if (parentDir == null || !parentDir.exists()) {
-            return;
-        }
-
-        // Find all backup files for this config
-        String baseName = originalFile.getName().replace(".json", "");
-        File[] backupFiles = parentDir.listFiles((dir, name) ->
-            name.startsWith(baseName + "_backup_") && name.endsWith(".json")
-        );
-
-        if (backupFiles == null || backupFiles.length <= maxBackups) {
-            return; // No cleanup needed
-        }
-
-        // Sort by modification time (oldest first)
-        Arrays.sort(backupFiles, (f1, f2) ->
-            Long.compare(f1.lastModified(), f2.lastModified())
-        );
-
-        // Delete oldest backups
-        int toDelete = backupFiles.length - maxBackups;
-        for (int i = 0; i < toDelete; i++) {
-            backupFiles[i].delete();
-        }
+    public long getBackupMinIntervalMillis() {
+        int minutes = getInt("settings.backup-min-interval-minutes", DEFAULT_BACKUP_MIN_INTERVAL_MINUTES);
+        minutes = Math.max(0, Math.min(MAX_BACKUP_MIN_INTERVAL_MINUTES, minutes));
+        return minutes * 60_000L;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -354,12 +312,23 @@ public class ConfigManager {
         return Math.max(0.0f, Math.min(4.0f, volume));
     }
 
+    /**
+     * Sets the global playback volume.
+     *
+     * <p>An explicit volume change also lifts an active mute: otherwise the
+     * plugin would still consider itself muted, and a later {@code /cjb unmute}
+     * would silently overwrite the value that was just set with the volume from
+     * before the mute.
+     *
+     * @param volume Volume (0.0 to 4.0)
+     */
     public void setVolume(float volume) {
         try {
-            if (!config.has("playback")) {
-                config.add("playback", new JsonObject());
+            if (isMuted) {
+                isMuted = false;
+                volumeBeforeMute = volume;
             }
-            config.getAsJsonObject("playback").addProperty("volume", volume);
+            writePlaybackState(volume);
             save();
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to set volume: " + e.getMessage());
@@ -392,6 +361,23 @@ public class ConfigManager {
     }
 
     /**
+     * Whether the boss bar showing the current track and its progress is used.
+     * @return true if the progress bar is enabled
+     */
+    public boolean isProgressBarEnabled() {
+        return getBoolean("playback.show-progress-bar", true);
+    }
+
+    /**
+     * How often the progress bar refreshes, in ticks. Clamped to [5, 100].
+     * @return refresh interval in ticks
+     */
+    public int getProgressUpdateTicks() {
+        int ticks = getInt("playback.progress-update-ticks", 20);
+        return Math.max(5, Math.min(100, ticks));
+    }
+
+    /**
      * Mutes playback by setting volume to 0 and saving the previous volume.
      * @return true if mute was successful, false if already muted
      */
@@ -402,8 +388,8 @@ public class ConfigManager {
 
         volumeBeforeMute = getVolume();
         isMuted = true;
-        setVolume(0.0f);
-        saveMuteState();
+        writePlaybackState(0.0f);
+        save();
         return true;
     }
 
@@ -417,8 +403,8 @@ public class ConfigManager {
         }
 
         isMuted = false;
-        setVolume(volumeBeforeMute);
-        saveMuteState();
+        writePlaybackState(volumeBeforeMute);
+        save();
         return true;
     }
 
@@ -449,6 +435,43 @@ public class ConfigManager {
     public int getDanceRadius() {
         int radius = getInt("parrots.dance-radius", 3);
         return Math.max(1, Math.min(32, radius));
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Ambient Zone Settings
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Master switch for the ambient-zone feature. When false, no zone scanner
+     * runs and zones never auto-start, regardless of zones.json.
+     */
+    public boolean isAmbientZonesEnabled() {
+        return getBoolean("ambient-zones.enabled", true);
+    }
+
+    /**
+     * Sound category used for ambient-zone playback.
+     *
+     * <p>Defaults to {@code RECORDS}, the same category jukebox playback uses, so
+     * zone music follows the player's "Jukebox/Note Blocks" slider. The downside
+     * is that stop-sound packets are addressed by sound key <em>and</em> category:
+     * if the same disc plays in a zone and in a nearby jukebox, either system
+     * stopping its track also silences the other one for that player. Servers
+     * that hit this can move zones to their own category (e.g. {@code MUSIC} or
+     * {@code AMBIENT}) so the two never interfere.
+     *
+     * @return configured sound category, or RECORDS if the value is unknown
+     */
+    public SoundCategory getAmbientZoneSoundCategory() {
+        String raw = getString("ambient-zones.sound-category", "RECORDS");
+        try {
+            return SoundCategory.valueOf(raw.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            plugin.getLogger().warning("Unknown ambient-zones.sound-category '" + raw
+                + "' - falling back to RECORDS. Valid values: "
+                + Arrays.toString(SoundCategory.values()));
+            return SoundCategory.RECORDS;
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -557,9 +580,5 @@ public class ConfigManager {
             plugin.getLogger().warning("Failed to get double '" + path + "': " + e.getMessage());
         }
         return defaultValue;
-    }
-
-    private String colorize(String message) {
-        return AdventureUtil.toLegacy(AdventureUtil.parseComponent(message));
     }
 }

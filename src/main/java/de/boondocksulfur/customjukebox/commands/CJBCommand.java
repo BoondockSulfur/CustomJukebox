@@ -52,6 +52,10 @@ public class CJBCommand implements CommandExecutor, TabCompleter {
         registerSubcommand(new MuteSubcommand(plugin));
         registerSubcommand(new UnmuteSubcommand(plugin));
         registerSubcommand(new PlaylistSubcommand(plugin));
+        registerSubcommand(new ZoneSubcommand(plugin));
+        registerSubcommand(new SkipSubcommand(plugin));
+        registerSubcommand(new MusicSubcommand(plugin));
+        registerSubcommand(new FavoriteSubcommand(plugin));
         // GeneratePackSubcommand removed - no internal pack generation
 
         // Help subcommand needs access to all subcommands

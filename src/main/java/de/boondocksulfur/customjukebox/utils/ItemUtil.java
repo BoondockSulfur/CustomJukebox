@@ -35,6 +35,40 @@ public class ItemUtil {
         Objects.requireNonNull(NamespacedKey.fromString("customjukebox:fragment_disc_id"));
 
     /**
+     * PDC key that stores the playlist ID on admin-GUI list entries, so a click
+     * resolves the playlist from item data instead of parsing its lore text.
+     */
+    public static final NamespacedKey PLAYLIST_ID_KEY =
+        Objects.requireNonNull(NamespacedKey.fromString("customjukebox:playlist_id"));
+
+    /**
+     * PDC key that stores the category ID on admin-GUI list entries.
+     */
+    public static final NamespacedKey CATEGORY_ID_KEY =
+        Objects.requireNonNull(NamespacedKey.fromString("customjukebox:category_id"));
+
+    /**
+     * Returns the item with a string written into its PersistentDataContainer.
+     *
+     * @param item item to tag (returned unchanged if it has no meta)
+     * @param key PDC key
+     * @param value value to store
+     * @return the same item instance, tagged
+     */
+    public static ItemStack withPdcString(ItemStack item, NamespacedKey key, String value) {
+        if (item == null || value == null) {
+            return item;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return item;
+        }
+        meta.getPersistentDataContainer().set(key, PersistentDataType.STRING, value);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    /**
      * Reads a string from an item's PersistentDataContainer.
      * @param item Item to read from
      * @param key PDC key

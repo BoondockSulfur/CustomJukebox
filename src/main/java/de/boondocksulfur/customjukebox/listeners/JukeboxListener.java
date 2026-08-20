@@ -4,7 +4,9 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
+import de.boondocksulfur.customjukebox.utils.GuiPageUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
+import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import net.kyori.adventure.text.Component;
@@ -28,8 +30,11 @@ import org.bukkit.Location;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,8 +50,18 @@ public class JukeboxListener implements Listener {
 
     private final CustomJukebox plugin;
 
+    // Disc selection GUI layout
+    private static final int DISCS_PER_PAGE = 45;
+    private static final int SLOT_PREV_PAGE = 45;
+    private static final int SLOT_PAGE_INFO = 46;
+    private static final int SLOT_ADMIN = 49;
+    private static final int SLOT_NEXT_PAGE = 53;
+
     // Track jukebox location for GUI selections (replaces deprecated FixedMetadataValue)
     private final Map<UUID, Location> playerJukeboxLocations = new ConcurrentHashMap<>();
+
+    // Current page of the disc selection GUI, per viewer
+    private final Map<UUID, Integer> discGuiPage = new ConcurrentHashMap<>();
 
     // Track recent disc changes to prevent race conditions (using String keys for reliability;
     // concurrent map because Folia region threads may touch different jukeboxes in parallel)
@@ -431,23 +446,83 @@ public class JukeboxListener implements Listener {
             return;
         }
 
+        // Store jukebox location for later use (when player clicks a disc)
+        playerJukeboxLocations.put(player.getUniqueId(), jukeboxBlock.getLocation());
+        openDiscSelection(player, 0);
+    }
+
+    /**
+     * Opens (or re-opens) the paged disc selection GUI.
+     *
+     * <p>Shared by the jukebox interaction and {@code /cjb gui}: whether a click
+     * inserts a disc into a jukebox or hands it to the player is decided by
+     * {@link #playerJukeboxLocations}, not by which code opened the inventory.
+     *
+     * @param player viewer
+     * @param page zero-based page (clamped to the available range)
+     */
+    public void openDiscSelection(Player player, int page) {
         String guiTitle = plugin.getLanguageManager().getMessage("gui-title");
         if (guiTitle == null || guiTitle.isEmpty()) {
             guiTitle = "Custom Jukebox"; // Fallback
         }
 
+        List<CustomDisc> allDiscs = new ArrayList<>(plugin.getDiscManager().getAllDiscs());
+        int pageCount = GuiPageUtil.pageCount(allDiscs.size(), DISCS_PER_PAGE);
+        page = GuiPageUtil.clampPage(page, allDiscs.size(), DISCS_PER_PAGE);
+        discGuiPage.put(player.getUniqueId(), page);
+
         Inventory gui = InventoryUtil.createGuiInventory(this, 54, guiTitle);
 
         int slot = 0;
-        for (CustomDisc disc : plugin.getDiscManager().getAllDiscs()) {
-            if (slot >= 54) break;
-            gui.setItem(slot++, disc.createItemStack());
+        for (CustomDisc disc : GuiPageUtil.slice(allDiscs, page, DISCS_PER_PAGE)) {
+            gui.setItem(slot++, decorate(disc, player));
+        }
+
+        gui.setItem(SLOT_PREV_PAGE, GuiPageUtil.previousButton(page));
+        gui.setItem(SLOT_NEXT_PAGE, GuiPageUtil.nextButton(page, pageCount));
+        gui.setItem(SLOT_PAGE_INFO, GuiPageUtil.pageIndicator(page, pageCount, allDiscs.size(), "discs"));
+
+        // Admin shortcut, only in the command-opened variant
+        if (!playerJukeboxLocations.containsKey(player.getUniqueId())
+                && player.hasPermission("customjukebox.admin")) {
+            ItemStack adminButton = new ItemStack(Material.NETHER_STAR);
+            ItemMeta meta = adminButton.getItemMeta();
+            if (meta != null) {
+                ItemUtil.setDisplayName(meta, "§6§l⚙ Admin Panel");
+                ItemUtil.setLore(meta,
+                    "§7Manage discs, playlists & categories",
+                    "",
+                    "§e§lClick to open Admin GUI");
+                adminButton.setItemMeta(meta);
+            }
+            gui.setItem(SLOT_ADMIN, adminButton);
         }
 
         player.openInventory(gui);
+    }
 
-        // Store jukebox location for later use (when player clicks a disc)
-        playerJukeboxLocations.put(player.getUniqueId(), jukeboxBlock.getLocation());
+    /**
+     * Builds the GUI entry for a disc, marking it when the viewer favourited it.
+     */
+    private ItemStack decorate(CustomDisc disc, Player player) {
+        ItemStack item = disc.createItemStack();
+        boolean favorite = plugin.getPlayerPreferencesManager()
+            .isFavorite(player.getUniqueId(), disc.getId());
+
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            List<String> lore = ItemUtil.getLore(meta);
+            if (lore == null) {
+                lore = new ArrayList<>();
+            }
+            lore.add("");
+            lore.add(favorite ? "§6★ §7In your favourites" : "§8☆ Not a favourite");
+            lore.add("§8Shift-click to " + (favorite ? "remove" : "add"));
+            ItemUtil.setLore(meta, lore);
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 
     @EventHandler
@@ -459,13 +534,45 @@ public class JukeboxListener implements Listener {
 
         event.setCancelled(true);
 
+        // Only clicks inside the GUI itself count. Without this check a click on
+        // a disc in the player's OWN inventory was handled as a menu selection
+        // (inserting it into the jukebox, or handing out another copy).
+        if (event.getClickedInventory() == null
+                || !event.getClickedInventory().equals(event.getView().getTopInventory())) {
+            return;
+        }
+
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || clicked.getType() == Material.AIR) return;
 
         Player player = (Player) event.getWhoClicked();
+
+        // Paging (the admin button on SLOT_ADMIN is handled by GuiSubcommand)
+        int slot = event.getSlot();
+        if (slot == SLOT_PREV_PAGE || slot == SLOT_NEXT_PAGE) {
+            int current = discGuiPage.getOrDefault(player.getUniqueId(), 0);
+            openDiscSelection(player, slot == SLOT_PREV_PAGE ? current - 1 : current + 1);
+            return;
+        }
+        if (slot == SLOT_PAGE_INFO || slot == SLOT_ADMIN) {
+            return;
+        }
+
         CustomDisc disc = plugin.getDiscManager().getDiscFromItem(clicked);
 
         if (disc == null) return;
+
+        // Shift-click toggles the favourite instead of selecting the disc
+        if (event.isShiftClick() && player.hasPermission("customjukebox.favorite")) {
+            boolean nowFavorite = plugin.getPlayerPreferencesManager()
+                .toggleFavorite(player.getUniqueId(), disc.getId());
+            MessageUtil.sendMessage(player, plugin.getLanguageManager()
+                .getMessage(nowFavorite ? "favorite-added" : "favorite-removed",
+                    "disc", disc.getDisplayName()));
+            // Redraw so the star updates without closing the menu
+            event.getView().getTopInventory().setItem(slot, decorate(disc, player));
+            return;
+        }
 
         // Check if GUI was opened from jukebox (has metadata) or from command (no metadata)
         boolean hasJukeboxLocation = playerJukeboxLocations.containsKey(player.getUniqueId());
@@ -582,9 +689,12 @@ public class JukeboxListener implements Listener {
 
         // Identify our GUI via its holder - title comparison breaks with hex colors
         if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
+        // Paging re-opens the inventory; that close must not drop the context
+        if (event.getReason() == InventoryCloseEvent.Reason.OPEN_NEW) return;
 
         // Remove metadata if player closes GUI without selecting a disc
         playerJukeboxLocations.remove(player.getUniqueId());
+        discGuiPage.remove(player.getUniqueId());
     }
 
     @EventHandler
@@ -657,13 +767,19 @@ public class JukeboxListener implements Listener {
         // Remove player from all active playbacks to prevent memory leak
         plugin.getPlaybackManager().removePlayerFromAllPlaybacks(player);
 
+        // Detach from any ambient zone so listener sets don't leak
+        plugin.getAmbientZoneManager().handleQuit(player);
+
         // Clean up any GUI metadata
         playerJukeboxLocations.remove(player.getUniqueId());
+        discGuiPage.remove(player.getUniqueId());
 
         // Clear all GUI and wizard sessions
+        plugin.getNowPlayingManager().cleanup(player);
         plugin.getAdminGUI().cleanup(player);
         plugin.getDiscEditorGUIv2().cleanup(player);
         plugin.getPlaylistEditorGUI().cleanup(player);
+        plugin.getZoneEditorGUI().cleanup(player);
         plugin.getDiscCreationWizard().cleanup(player);
         plugin.getCategoryEditorGUI().cancelSession(player.getUniqueId());
         plugin.getCategoryCreationWizard().cancelSession(player.getUniqueId());

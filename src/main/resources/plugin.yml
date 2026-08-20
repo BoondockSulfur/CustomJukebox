@@ -10,7 +10,7 @@ softdepend: [WorldGuard, GriefPrevention, PlaceholderAPI]
 commands:
   cjb:
     description: CustomJukebox main command
-    usage: /<command> <reload|give|fragment|list|info|gui|play|stop|volume|mute|unmute|playlist|help>
+    usage: /<command> <reload|give|fragment|list|info|gui|play|stop|volume|mute|unmute|playlist|zone|skip|music|favorite|help>
     aliases: [customjukebox, jukebox, jb]
     permission: customjukebox.use
 
@@ -30,6 +30,8 @@ permissions:
       customjukebox.stop: true
       customjukebox.volume: true
       customjukebox.playlist: true
+      customjukebox.zone: true
+      customjukebox.skip: true
       customjukebox.updatenotify: true
       customjukebox.bypass.protection: true
 
@@ -41,6 +43,9 @@ permissions:
       customjukebox.gui: true
       customjukebox.list: true
       customjukebox.info: true
+      customjukebox.music: true
+      customjukebox.favorite: true
+      customjukebox.skip: true
 
   # Individual permissions
   customjukebox.use:
@@ -86,6 +91,22 @@ permissions:
   customjukebox.playlist:
     description: Allows managing and playing playlists
     default: op
+
+  customjukebox.zone:
+    description: Allows managing ambient music zones
+    default: op
+
+  customjukebox.skip:
+    description: Allows skipping the track the player is currently hearing
+    default: true
+
+  customjukebox.music:
+    description: Allows managing your own music settings (on/off, personal volume)
+    default: true
+
+  customjukebox.favorite:
+    description: Allows managing and playing your own favourite discs
+    default: true
 
   customjukebox.updatenotify:
     description: Receive notifications about available plugin updates

@@ -5,6 +5,8 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import net.kyori.adventure.text.minimessage.tag.standard.StandardTags;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 import java.util.ArrayList;
@@ -28,7 +30,28 @@ import java.util.regex.Pattern;
  */
 public class AdventureUtil {
 
-    private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
+    /**
+     * MiniMessage restricted to pure formatting tags.
+     *
+     * <p>Everything routed through {@link #parseComponent(String)} - disc and
+     * category names, lore, GUI titles - originates from user input (chat
+     * wizards, config files). The full tag set would let that input carry
+     * {@code <click:run_command:...>}, {@code <hover:...>}, {@code <insert:...>}
+     * and data tags into items other players see. Only colour/decoration tags
+     * are needed here, so the rest are not registered and stay literal text.
+     */
+    private static final MiniMessage MINI_MESSAGE = MiniMessage.builder()
+        .tags(TagResolver.builder()
+            .resolver(StandardTags.color())
+            .resolver(StandardTags.decorations())
+            .resolver(StandardTags.gradient())
+            .resolver(StandardTags.rainbow())
+            .resolver(StandardTags.transition())
+            .resolver(StandardTags.font())
+            .resolver(StandardTags.reset())
+            .resolver(StandardTags.newline())
+            .build())
+        .build();
     // hexColors(): serialize hex colors as &#rrggbb instead of downsampling
     // them to the nearest &-code (which would break round-trips)
     private static final LegacyComponentSerializer LEGACY_SERIALIZER =

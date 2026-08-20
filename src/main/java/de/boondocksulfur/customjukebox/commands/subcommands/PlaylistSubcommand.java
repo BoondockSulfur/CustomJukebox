@@ -4,6 +4,9 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
+import de.boondocksulfur.customjukebox.model.PlaybackRange;
+import de.boondocksulfur.customjukebox.model.RepeatMode;
+import de.boondocksulfur.customjukebox.utils.InputValidator;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -18,6 +21,10 @@ import java.util.stream.Collectors;
  * Usage: /cjb playlist <list|info|play> [args...]
  */
 public class PlaylistSubcommand implements SubCommand {
+
+    /** Flags {@code playlist play} accepts, in any order. */
+    private static final List<String> PLAY_FLAGS = Arrays.asList(
+        "shuffle", "loop", "repeat-one", "off", "global", "world", "50", "100", "200");
 
     private final CustomJukebox plugin;
 
@@ -38,6 +45,49 @@ public class PlaylistSubcommand implements SubCommand {
     @Override
     public String getUsage() {
         return "/cjb playlist <list|info|play|create|delete|add|remove|rename|edit> [args...]";
+    }
+
+    /**
+     * Parses the order-independent flags accepted by {@code playlist play}:
+     * {@code loop}/{@code repeat-one}/{@code off} for the repeat mode,
+     * {@code shuffle} for random order, and {@code global}/{@code world}/a
+     * radius for the playback range.
+     *
+     * <p>The range is stored on the queue, so every following track of the
+     * playlist inherits it - not just the first one.
+     */
+    private static final class PlayOptions {
+        RepeatMode repeatMode = RepeatMode.OFF;
+        boolean shuffle;
+        PlaybackRange range = new PlaybackRange(PlaybackRange.RangeType.NORMAL);
+        boolean rangeSet;
+        String invalidArgument;
+
+        static PlayOptions parse(String[] args, int from) {
+            PlayOptions options = new PlayOptions();
+            for (int i = from; i < args.length; i++) {
+                String arg = args[i].toLowerCase(java.util.Locale.ROOT);
+                if (arg.equals("shuffle") || arg.equals("random")) {
+                    options.shuffle = true;
+                    continue;
+                }
+                RepeatMode parsedMode = RepeatMode.parse(arg);
+                if (parsedMode != null) {
+                    options.repeatMode = parsedMode;
+                    continue;
+                }
+                // Same vocabulary as /cjb play: global|world|<radius>
+                PlaybackRange parsedRange = PlaybackRange.parse(arg);
+                if (parsedRange != null) {
+                    options.range = parsedRange;
+                    options.rangeSet = true;
+                    continue;
+                }
+                options.invalidArgument = args[i];
+                return options;
+            }
+            return options;
+        }
     }
 
     @Override
@@ -158,20 +208,32 @@ public class PlaylistSubcommand implements SubCommand {
             return true;
         }
 
-        // Check for loop parameter
-        boolean loop = args.length > 2 && (args[2].equalsIgnoreCase("loop") ||
-                                           args[2].equalsIgnoreCase("true") ||
-                                           args[2].equalsIgnoreCase("yes"));
+        PlayOptions options = PlayOptions.parse(args, 2);
+        if (options.invalidArgument != null) {
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager()
+                .getMessage("playlist-play-invalid-option", "value", options.invalidArgument));
+            return true;
+        }
 
-        // Start playlist playback
-        plugin.getPlaybackManager().startPlaylistPlayback(player.getLocation(), playlist, loop);
+        // Block coordinates keep the location key stable if the player shifts
+        plugin.getPlaybackManager().startPlaylistPlayback(
+            player.getLocation().getBlock().getLocation(), playlist,
+            options.repeatMode, options.shuffle, options.range);
 
         String message = plugin.getLanguageManager().getMessage("playlist-started")
             .replace("{playlist}", playlist.getDisplayName())
             .replace("{count}", String.valueOf(playlist.getDiscCount()));
 
-        if (loop) {
-            message += " " + plugin.getLanguageManager().getMessage("playlist-loop-enabled");
+        if (options.repeatMode != RepeatMode.OFF) {
+            message += " " + plugin.getLanguageManager()
+                .getMessage("playlist-repeat-mode", "mode", options.repeatMode.display());
+        }
+        if (options.shuffle) {
+            message += " " + plugin.getLanguageManager().getMessage("playlist-shuffle-enabled");
+        }
+        if (options.rangeSet) {
+            message += " " + plugin.getLanguageManager()
+                .getMessage("playback-range-info", "range", options.range.toString());
         }
 
         MessageUtil.sendMessage(sender, message);
@@ -186,6 +248,13 @@ public class PlaylistSubcommand implements SubCommand {
         }
 
         String id = args[1];
+        // Same rule the admin GUI applies - a playlist id is a JSON key and a
+        // command argument, so it must not contain spaces or exotic characters
+        if (!InputValidator.isValidPlaylistId(id)) {
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager()
+                .getMessage("playlist-invalid-id", "value", id));
+            return true;
+        }
         String displayName = args.length > 2 ? String.join(" ", Arrays.copyOfRange(args, 2, args.length)) : id;
         String description = "";
 
@@ -278,6 +347,12 @@ public class PlaylistSubcommand implements SubCommand {
         String oldId = args[1];
         String newId = args[2];
 
+        if (!InputValidator.isValidPlaylistId(newId)) {
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager()
+                .getMessage("playlist-invalid-id", "value", newId));
+            return true;
+        }
+
         boolean success = plugin.getDiscManager().renamePlaylist(oldId, newId);
 
         if (success) {
@@ -352,9 +427,9 @@ public class PlaylistSubcommand implements SubCommand {
         if (args.length == 3) {
             String action = args[0].toLowerCase();
 
-            // Play command: suggest loop
+            // Play command: repeat mode, shuffle and range flags
             if (action.equals("play")) {
-                return Arrays.asList("loop", "true", "yes").stream()
+                return PLAY_FLAGS.stream()
                     .filter(s -> s.toLowerCase().startsWith(args[2].toLowerCase()))
                     .collect(Collectors.toList());
             }
@@ -366,6 +441,13 @@ public class PlaylistSubcommand implements SubCommand {
                     .filter(s -> s.toLowerCase().startsWith(args[2].toLowerCase()))
                     .collect(Collectors.toList());
             }
+        }
+
+        if (args.length >= 4 && args.length <= 5 && args[0].equalsIgnoreCase("play")) {
+            String prefix = args[args.length - 1].toLowerCase();
+            return PLAY_FLAGS.stream()
+                .filter(s -> s.toLowerCase().startsWith(prefix))
+                .collect(Collectors.toList());
         }
 
         return new ArrayList<>();

@@ -17,7 +17,16 @@ public class InputValidator {
     public static final int MAX_CATEGORY_NAME_LENGTH = 64;
     public static final int MAX_PLAYLIST_ID_LENGTH = 32;
     public static final int MAX_PLAYLIST_NAME_LENGTH = 64;
+    public static final int MAX_ZONE_ID_LENGTH = 32;
+    public static final int MAX_DESCRIPTION_LENGTH = 256;
     public static final int MAX_LORE_LINE_LENGTH = 256;
+
+    /**
+     * Upper bound for CustomModelData. Kept in sync with the cap DiscManager
+     * applies when deriving fragment model data, so a disc can never be created
+     * with a value that would silently be capped later.
+     */
+    public static final int MAX_CUSTOM_MODEL_DATA = 1_000_000;
 
     // IDs are referenced via space-separated command arguments, so they must not
     // contain whitespace or exotic characters.
@@ -71,6 +80,16 @@ public class InputValidator {
      */
     public static boolean isValidPlaylistId(String id) {
         return isValidId(id, MAX_PLAYLIST_ID_LENGTH);
+    }
+
+    /**
+     * Validates ambient-zone ID format and length.
+     * Allowed characters: letters, digits, underscore, hyphen (no whitespace).
+     * @param id Zone ID to validate
+     * @return true if valid, false otherwise
+     */
+    public static boolean isValidZoneId(String id) {
+        return isValidId(id, MAX_ZONE_ID_LENGTH);
     }
 
     /**

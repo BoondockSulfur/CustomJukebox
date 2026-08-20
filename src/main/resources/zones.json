@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "settings": {
+    "scan-interval-ticks": 20
+  },
+  "zones": {}
+}

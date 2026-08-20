@@ -34,6 +34,11 @@ A fully-featured Minecraft Paper Plugin for version 1.21+ with advanced Jukebox 
 - **JSON Configuration**: Easy management via `disc.json`
 - **Categories**: Organize discs by theme (Ambient, Epic, Nature, etc.)
 - **Playlists**: Group multiple discs for sequential playback
+- **Ambient Zones** (NEW in v3.3.0): Auto-play a looping playlist for everyone who enters an area (radius, cuboid or WorldGuard region) — perfect for lobby/hub background music, with per-zone `synced`/`individual` playback
+- **Server Radio** (NEW in v3.4.0): A zone that reaches every player in every world (`/cjb zone global <id>`)
+- **Shuffle & Repeat** (NEW in v3.4.0): Random order and `loop`/`repeat-one` for playlists and zones
+- **Progress Bar** (NEW in v3.4.0): Boss bar showing the current track and how far into it you are
+- **Personal Settings & Favourites** (NEW in v3.4.0): Every player can turn music off, set their own volume, and keep a favourites list
 
 ### 🧩 Fragment System
 - **Disc Fragments**: Collect fragments and craft complete discs
@@ -125,7 +130,9 @@ Category: <gradient:#00FF00:#0000FF>Nature Sounds</gradient>
     "enabled": true,
     "language": "en",
     "enable-gui": true,
-    "debug": false
+    "debug": false,
+    "max-backups": 5,
+    "backup-min-interval-minutes": 5
   },
   "discs": {
     "creeper-drops": true,
@@ -137,9 +144,22 @@ Category: <gradient:#00FF00:#0000FF>Nature Sounds</gradient>
     "enable-crafting": true,
     "fragments-per-disc": 9
   },
+  "playback": {
+    "volume": 4.0,
+    "default-loop": false,
+    "jukebox-hearing-radius": 64,
+    "show-title": true,
+    "show-actionbar": true,
+    "show-progress-bar": true,
+    "progress-update-ticks": 20
+  },
   "parrots": {
     "enable-dancing": true,
     "dance-radius": 3
+  },
+  "ambient-zones": {
+    "enabled": true,
+    "sound-category": "RECORDS"
   },
   "integrations": {
     "worldguard": true,
@@ -156,16 +176,67 @@ Category: <gradient:#00FF00:#0000FF>Nature Sounds</gradient>
 | `settings.language` | string | Language (en, de, es, it) | `"en"` |
 | `settings.enable-gui` | boolean | Enable jukebox GUI | `true` |
 | `settings.debug` | boolean | Debug mode (verbose logging) | `false` |
+| `settings.max-backups` | number | Timestamped backups kept per config file (`0` disables and prunes) | `5` |
+| `settings.backup-min-interval-minutes` | number | Minimum gap between two backups of the same file (`0` = back up on every save) | `5` |
+| `playback.volume` | number | Server-wide playback volume (0.0-4.0) | `4.0` |
+| `playback.jukebox-hearing-radius` | number | Radius for the "Now Playing" announcements | `64` |
+| `playback.show-title` | boolean | Title shown when a custom disc starts | `true` |
+| `playback.show-actionbar` | boolean | Actionbar shown when a custom disc starts | `true` |
+| `playback.show-progress-bar` | boolean | Boss bar showing the current track and its progress | `true` |
+| `playback.progress-update-ticks` | number | Progress bar refresh interval in ticks (5-100) | `20` |
 | `discs.creeper-drops` | boolean | Fragment drops from Creepers | `true` |
-| `discs.creeper-drop-chance` | number | Drop chance (0.05 = 5%) | `0.05` |
+| `discs.creeper-drop-chance` | number | Drop chance (0.05 = 5%, `0` disables) | `0.05` |
 | `discs.dungeon-loot` | boolean | Fragments in loot chests | `true` |
-| `discs.loot-chance` | number | Loot chance (0.15 = 15%) | `0.15` |
+| `discs.loot-chance` | number | Loot chance (0.15 = 15%, `0` disables) | `0.15` |
+| `discs.max-loot-discs` | number | Max fragment stacks per loot chest (`0` disables loot fragments) | `2` |
 | `discs.enable-crafting` | boolean | Enable fragment crafting | `true` |
 | `discs.fragments-per-disc` | number | Fragments per disc | `9` |
 | `parrots.enable-dancing` | boolean | Parrots dance to music | `true` |
 | `parrots.dance-radius` | number | Dance radius in blocks | `3` |
+| `ambient-zones.enabled` | boolean | Master switch for ambient music zones | `true` |
+| `ambient-zones.sound-category` | string | Sound category for zone music (`RECORDS`, `MUSIC`, `AMBIENT`, ...) | `"RECORDS"` |
 | `integrations.worldguard` | boolean | WorldGuard integration | `true` |
 | `integrations.griefprevention` | boolean | GriefPrevention integration | `true` |
+
+> Config files are saved asynchronously on a dedicated writer thread and written atomically,
+> so edits never stall the server tick and an interrupted write cannot damage a config file.
+
+---
+
+## 🎧 Player Commands (NEW in v3.4.0)
+
+Every player gets these by default — no permission setup needed.
+
+```bash
+/cjb music status                  # Your settings + what is currently playing
+/cjb music on | off | toggle       # Opt out of (or back into) plugin music
+/cjb music volume <0-4|reset>      # Your own volume, independent of the server's
+/cjb skip                          # Skip the track you are hearing right now
+
+/cjb favorite add|remove <disc>    # Manage your favourites (or shift-click in /cjb gui)
+/cjb favorite list                 # Show them
+/cjb favorite play [shuffle] [loop|repeat-one] [global|world|<radius>]
+/cjb favorite clear
+```
+
+### What the sound engine allows — and what it doesn't
+
+CustomJukebox plays real `.ogg` audio from a resource pack. The server sends one
+play-sound packet and the client owns playback from there, which is what makes
+full-quality music possible in the first place. The trade-off is that the server
+can only **start** and **stop** a sound:
+
+| | Supported |
+|---|---|
+| Skip, shuffle, repeat, favourites, radio | ✅ |
+| Progress display | ✅ (server-side bookkeeping, not a client readout) |
+| Per-player volume & mute | ✅ (applies from the next track) |
+| **Pause / resume** | ❌ — resuming could only restart the track |
+| **Seek / jump to a position** | ❌ |
+| **Volume change mid-track** | ❌ — takes effect at the next track |
+
+Note-block plugins can pause and seek because they generate every note themselves;
+they cannot play produced audio. This plugin makes the opposite trade.
 
 ---
 
@@ -310,6 +381,159 @@ Group multiple discs for automatic sequential playback:
 2. Automatically plays next disc when current finishes
 3. Continues until all discs played
 4. With `loop`: Restarts from first disc
+
+> Note: `/cjb playlist play` starts a playlist **once, at your location**, for whoever is in range at that moment. For background music that **auto-starts when players enter an area and loops forever** (e.g. a lobby), use **Ambient Zones** below.
+
+---
+
+## 🌐 Ambient Zones (NEW in v3.3.0)
+
+An **ambient zone** continuously loops a playlist and starts **automatically for every player who enters its area** — no disc, no command, once it's set up. Perfect for lobby/hub background music or event ambience.
+
+### Quick start (lobby example)
+
+```bash
+# 1. Build a playlist (see above) — e.g. "lobby-mix"
+# 2. Stand in the middle of your lobby and create a zone there:
+/cjb zone create lobby            # centers a radius zone on your position
+/cjb zone radius lobby 60         # audible/active radius in blocks
+/cjb zone playlist lobby lobby-mix
+# Done — the zone is enabled, loops by default, and starts for anyone within 60 blocks.
+```
+
+Prefer a precise, non-spherical area? Use a **WorldGuard region** or a **cuboid** (box between two corners) instead of a radius:
+
+```bash
+# WorldGuard region:
+/cjb zone region lobby spawn_lobby   # uses your current world + the region "spawn_lobby"
+
+# Cuboid — stand in one corner, then the opposite corner:
+/cjb zone pos1 lobby                  # first corner = your position
+/cjb zone pos2 lobby                  # opposite corner = your position
+```
+
+By default a zone covers the **full height** (any Y): a radius zone is a vertical **cylinder** and a cuboid an infinite **column** — so players hear it at any height within the horizontal footprint, not just near the center's Y. If you want the zone bounded in Y too (a true 3D sphere/box), set `/cjb zone height <id> limited`.
+
+### Playback mode: synced vs individual
+
+`/cjb zone playback <id> <synced|individual>` chooses how the playlist reaches the people inside:
+
+- **`synced`** (default): one shared timeline — everyone hears the **same track at the same time**. Late arrivals are handled by `syncMode` (see below). Best for **events**.
+- **`individual`**: each player runs the playlist **on their own from the moment they enter**, always hearing **complete tracks start-to-finish** (no mid-song switching) and looping the whole playlist — but players are not in sync with each other. Best for a **lobby / background music**. `syncMode` is ignored in this mode.
+
+```bash
+/cjb zone playback lobby individual   # lobby: full songs per player
+/cjb zone playback eventstage synced  # event: everyone in sync
+```
+
+### Commands
+
+All under permission `customjukebox.zone` (default: op).
+
+```bash
+/cjb zone list                        # List all zones with their state
+/cjb zone info <id>                   # Show a zone's full configuration
+/cjb zone create <id>                 # Create a zone (centered on you if in-game)
+/cjb zone delete <id>                 # Delete a zone
+/cjb zone edit <id>                   # Open the zone editor GUI
+
+/cjb zone playlist <id> <playlist>    # Assign the playlist to loop
+/cjb zone radius <id> <blocks>        # Make it a radius zone with this radius
+/cjb zone center <id>                 # Set the radius center to your position
+/cjb zone pos1 <id>                   # Cuboid: first corner = your position
+/cjb zone pos2 <id>                   # Cuboid: opposite corner = your position
+/cjb zone region <id> <wg-region>     # Make it a WorldGuard-region zone
+/cjb zone global <id>                 # Server radio: reaches every player, every world
+/cjb zone shuffle <id> <true|false>   # Random order, reshuffled every lap
+/cjb zone height <id> <full|limited>  # full = any Y (cylinder/column, default); limited = bounded in Y (3D)
+/cjb zone loop <id> <true|false>      # Loop the whole playlist (default true)
+/cjb zone playback <id> <synced|individual>  # Shared timeline vs per-player full songs
+/cjb zone sync <id> <immediate|next_track>   # (synced only) how late arrivals join
+/cjb zone volume <id> <inherit|0-4>   # Volume = audible radius (inherit = global)
+/cjb zone priority <id> <number>      # Overlapping zones: highest priority wins
+/cjb zone enable|disable <id>         # Turn a zone on/off
+/cjb zone reload                      # Reload zones.json
+```
+
+Every `/cjb zone` change reports back whether the zone can actually play. If it stays
+silent, the command tells you why in-game — most often an assigned playlist whose discs
+have no `durationTicks` (a zone needs a duration to advance to the next track).
+
+### What restarts the music, and what doesn't
+
+Changing a zone's **playlist**, **loop**, **playback mode** or **volume** rebuilds the
+zone's timeline, so the playlist starts again from its first track. Changing the **area**
+(radius, center, corners, region, world), the **height range**, the **priority** or the
+**sync mode** does *not* interrupt playback — the scanner simply re-evaluates who is
+inside within one scan interval.
+
+Editing the **contents** of a playlist a zone uses (`/cjb playlist add|remove`, deleting a
+disc, changing a disc's sound or duration) rebuilds the affected zones automatically — no
+`/cjb zone reload` needed.
+
+### Zones and jukeboxes playing the same disc
+
+Zone music uses the `RECORDS` sound category by default, the same one jukeboxes use, so it
+follows the player's "Jukebox/Note Blocks" slider. Stop-sound packets are addressed by
+sound key *and* category, so if the **same disc** plays in a zone and in a nearby jukebox
+at the same time, either one stopping its track also silences the other for that player.
+If that affects your setup, give zones their own category:
+
+```json
+"ambient-zones": { "enabled": true, "sound-category": "MUSIC" }
+```
+
+### Late arrivals & the sync modes (synced mode)
+
+> This only applies to `playback: synced`. In `individual` mode every player hears full tracks from entry, so there is no "late arrival" problem to solve.
+
+Minecraft's sound engine **cannot seek**, so a player who walks in while a track is already playing cannot be dropped into the exact middle of it. You choose how that's handled per zone:
+
+- **`immediate`** (default): the new arrival hears the current track **from its beginning** — never silence, but slightly offset from players already listening.
+- **`next_track`**: the new arrival stays silent until the **next track starts**, then joins perfectly in sync with everyone.
+
+Either way, **everyone re-syncs at every track boundary**, so drift never accumulates.
+
+### How it works
+
+- Each enabled zone runs its own playlist "timeline" that advances and loops **independently of who is listening**, so entering players always know which track is current.
+- With `loop false`, a zone plays its playlist through once and then goes silent; it **replays from the first track when a player next enters**, so the area is never permanently dead. Leave `loop true` (default) for continuous background music.
+- A scanner checks every online player's position on an interval (`settings.scan-interval-ticks` in `zones.json`, default `20` = 1 s) and starts/stops the zone's audio as players cross the boundary.
+- Discs need a configured `durationTicks` to be used in a zone (that's how tracks advance/loop) — discs without a duration are skipped with a warning.
+- **Folia**: fully supported — player checks and sound playback run on each player's region thread.
+
+### `zones.json`
+
+Zones are stored in `zones.json` (created automatically). The `/cjb zone` commands and the editor GUI write this file for you, but it can also be edited by hand and applied with `/cjb zone reload`:
+
+```json
+{
+  "version": 1,
+  "settings": { "scan-interval-ticks": 20 },
+  "zones": {
+    "lobby": {
+      "enabled": true,
+      "world": "world",
+      "type": "radius",
+      "center": { "x": 0.0, "y": 64.0, "z": 0.0 },
+      "radius": 60.0,
+      "region": "",
+      "playlist": "lobby-mix",
+      "loop": true,
+      "volume": -1,
+      "syncMode": "immediate",
+      "playback": "synced",
+      "fullHeight": true,
+      "priority": 0
+    }
+  }
+}
+```
+
+- Set `"type": "worldguard"` + a `"region"` name to use a WorldGuard region, or `"type": "cuboid"` + `"pos1"`/`"pos2"` (`{ "x":…, "y":…, "z":… }` block coords) for a box, instead of `center`/`radius`.
+- `"playback"` is `"synced"` (shared timeline) or `"individual"` (per-player full songs).
+- `"fullHeight": true` (default) ignores the Y axis (cylinder/column — any height); `false` bounds the zone in Y too (sphere/box).
+- `"volume": -1` means "inherit the global playback volume". The whole feature can be switched off with `ambient-zones.enabled` in `config.json`.
 
 ---
 
@@ -688,6 +912,7 @@ Check the following:
 | `/cjb playlist remove <name> <disc>` | Removes disc from playlist (v1.3.0+) | `customjukebox.playlist` |
 | `/cjb playlist rename <old> <new>` | Renames playlist (v1.3.0+) | `customjukebox.playlist` |
 | `/cjb playlist edit <name>` | Opens GUI editor (v1.3.0+) | `customjukebox.playlist` |
+| `/cjb zone <action> <id> [value]` | Manage ambient music zones — auto-playing looping playlists for a region/radius/cuboid. Actions: `list`, `info`, `create`, `delete`, `edit`, `playlist`, `radius`, `center`, `pos1`, `pos2`, `region`, `height`, `loop`, `sync`, `playback`, `volume`, `priority`, `enable`, `disable`, `reload`. See [Ambient Zones](#-ambient-zones-new-in-v330). (v3.3.0+) | `customjukebox.zone` |
 
 ### Permissions
 
@@ -695,7 +920,7 @@ Check the following:
 
 | Permission | Beschreibung | Standard | Enthält |
 |------------|-------------|----------|---------|
-| `customjukebox.admin` | Alle Admin-Befehle | **OP** | `reload`, `give`, `fragment`, `list`, `info`, `gui`, `play`, `stop`, `volume`, `playlist`, `updatenotify` |
+| `customjukebox.admin` | Alle Admin-Befehle | **OP** | `reload`, `give`, `fragment`, `list`, `info`, `gui`, `play`, `stop`, `volume`, `playlist`, `zone`, `updatenotify` |
 | `customjukebox.user` | Alle Spieler-Befehle | **Alle** | `use`, `gui`, `list`, `info` |
 
 #### Einzelne Permissions
@@ -713,6 +938,7 @@ Check the following:
 | `customjukebox.stop` | Alle aktiven Wiedergaben stoppen | OP | `/cjb stop` |
 | `customjukebox.volume` | Lautstärke ändern, Mute/Unmute | OP | `/cjb volume`, `/cjb mute`, `/cjb unmute` |
 | `customjukebox.playlist` | Playlists verwalten und abspielen | OP | `/cjb playlist <...>` |
+| `customjukebox.zone` | Ambient-Zonen verwalten | OP | `/cjb zone <...>` |
 | `customjukebox.updatenotify` | Update-Benachrichtigungen beim Login | OP | - |
 
 #### Übersicht als Baum
@@ -726,6 +952,7 @@ customjukebox.admin          (OP)     → Alle Admin-Befehle
   ├── customjukebox.stop               → Wiedergabe stoppen
   ├── customjukebox.volume             → Lautstärke / Mute
   ├── customjukebox.playlist           → Playlist-Verwaltung
+  ├── customjukebox.zone               → Ambient-Zonen-Verwaltung
   └── customjukebox.updatenotify       → Update-Hinweise
 
 customjukebox.user           (Alle)   → Alle Spieler-Befehle

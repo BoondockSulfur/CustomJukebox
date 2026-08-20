@@ -6,7 +6,9 @@ import de.boondocksulfur.customjukebox.api.events.DiscPlaybackStopEvent;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.model.JukeboxPlayback;
+import de.boondocksulfur.customjukebox.model.NowPlaying;
 import de.boondocksulfur.customjukebox.model.PlaybackRange;
+import de.boondocksulfur.customjukebox.model.RepeatMode;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import org.bukkit.Location;
 import org.bukkit.SoundCategory;
@@ -50,14 +52,20 @@ public class PlaybackManager {
     private static class PlaylistQueue {
         private final List<CustomDisc> discs;
         private int currentIndex;
-        private final boolean loop;
+        private final RepeatMode repeatMode;
+        private final boolean shuffle;
         private final PlaybackRange range;
+        private final Random random = new Random();
 
-        PlaylistQueue(List<CustomDisc> discs, boolean loop, PlaybackRange range) {
+        PlaylistQueue(List<CustomDisc> discs, RepeatMode repeatMode, boolean shuffle, PlaybackRange range) {
             this.discs = new ArrayList<>(discs);
+            this.repeatMode = repeatMode != null ? repeatMode : RepeatMode.OFF;
+            this.shuffle = shuffle;
             this.currentIndex = 0;
-            this.loop = loop;
             this.range = range != null ? range : new PlaybackRange(PlaybackRange.RangeType.NORMAL);
+            if (shuffle) {
+                Collections.shuffle(this.discs, random);
+            }
         }
 
         synchronized CustomDisc getCurrentDisc() {
@@ -66,41 +74,43 @@ public class PlaybackManager {
         }
 
         synchronized boolean hasNext() {
-            return loop || (currentIndex + 1 < discs.size());
+            if (discs.isEmpty()) return false;
+            if (repeatMode == RepeatMode.ONE) return true;
+            return repeatMode == RepeatMode.ALL || currentIndex + 1 < discs.size();
         }
 
         synchronized CustomDisc next() {
-            if (discs.isEmpty()) return null;
-
-            // Check if we can advance before incrementing
             if (!hasNext()) {
                 return null;
+            }
+            if (repeatMode == RepeatMode.ONE) {
+                return discs.get(currentIndex); // Stay on the same track
             }
 
             currentIndex++;
             if (currentIndex >= discs.size()) {
-                if (loop) {
-                    currentIndex = 0;
-                } else {
-                    // This should not happen due to hasNext() check
-                    currentIndex = discs.size() - 1;
-                    return null;
+                // Only reachable with RepeatMode.ALL - hasNext() guards the rest
+                currentIndex = 0;
+                if (shuffle && discs.size() > 1) {
+                    // Re-shuffle each lap so looping is not one fixed order
+                    CustomDisc last = discs.get(discs.size() - 1);
+                    Collections.shuffle(discs, random);
+                    // Don't repeat the track that just played across the wrap
+                    if (discs.get(0).getId().equals(last.getId())) {
+                        Collections.swap(discs, 0, discs.size() - 1);
+                    }
                 }
             }
-
             return discs.get(currentIndex);
         }
 
         synchronized CustomDisc peekNext() {
             if (!hasNext()) return null;
+            if (repeatMode == RepeatMode.ONE) return discs.get(currentIndex);
 
             int nextIndex = currentIndex + 1;
             if (nextIndex >= discs.size()) {
-                if (loop) {
-                    return discs.get(0);
-                } else {
-                    return null;
-                }
+                return repeatMode == RepeatMode.ALL ? discs.get(0) : null;
             }
             return discs.get(nextIndex);
         }
@@ -315,6 +325,110 @@ public class PlaybackManager {
     }
 
     /**
+     * Stops any sound this player is currently being sent and drops them from
+     * the listener sets, without affecting anyone else.
+     *
+     * <p>Used when a player turns their music off, so it goes quiet immediately
+     * instead of at the end of the current track.
+     *
+     * @param player the player to silence
+     */
+    public void stopSoundFor(Player player) {
+        if (player == null) {
+            return;
+        }
+        UUID uuid = player.getUniqueId();
+        for (JukeboxPlayback playback : activePlaybacks.values()) {
+            if (playback == null || !playback.getListeners().contains(uuid)) {
+                continue;
+            }
+            if (playback.getDisc().hasCustomSound()) {
+                stopSound(player, playback.getDisc().getSoundKey());
+            }
+            playback.removeListener(uuid);
+        }
+    }
+
+    /**
+     * Attaches a player to every active playback they are in range of but not
+     * currently hearing, and starts that track for them.
+     *
+     * <p>Used when a player turns their music back on. The track necessarily
+     * starts from its beginning for them - the sound engine cannot seek - so
+     * they are briefly offset from listeners who were there all along, until
+     * the next track boundary re-syncs everyone.
+     *
+     * @param player the player to attach
+     * @return how many playbacks the player was attached to
+     */
+    public int resumeSoundFor(Player player) {
+        if (player == null || !player.isOnline()
+                || !plugin.getPlayerPreferencesManager().isMusicEnabled(player.getUniqueId())) {
+            return 0;
+        }
+        UUID uuid = player.getUniqueId();
+        int attached = 0;
+        for (JukeboxPlayback playback : activePlaybacks.values()) {
+            if (playback == null || playback.isStopped() || playback.getListeners().contains(uuid)) {
+                continue;
+            }
+            CustomDisc disc = playback.getDisc();
+            if (!disc.hasCustomSound()) {
+                continue;
+            }
+            Location location = playback.getJukeboxLocation();
+            if (!isInPlaybackRange(player, location, playback.getRange())) {
+                continue;
+            }
+            playSound(player, location, disc.getSoundKey());
+            playback.addListener(player);
+            attached++;
+        }
+        return attached;
+    }
+
+    /**
+     * The active playback a player can act on - what they hear, or failing that
+     * what is playing within earshot.
+     *
+     * <p>{@link #getPlaybackFor} resolves strictly by listener membership, which
+     * is right for the progress bar but too strict for {@code /cjb skip}: a
+     * player who just re-enabled their music, or who walked up after the track
+     * started, is in range without being a listener yet.
+     *
+     * @param player the player
+     * @return the playback, or null if nothing is playing nearby
+     */
+    public JukeboxPlayback getAudiblePlaybackFor(Player player) {
+        if (player == null) {
+            return null;
+        }
+        UUID uuid = player.getUniqueId();
+        JukeboxPlayback best = null;
+        boolean bestIsListener = false;
+
+        for (JukeboxPlayback playback : activePlaybacks.values()) {
+            if (playback == null || playback.isStopped()) {
+                continue;
+            }
+            boolean listener = playback.getListeners().contains(uuid);
+            if (!listener && !isInPlaybackRange(player, playback.getJukeboxLocation(), playback.getRange())) {
+                continue;
+            }
+            // Something the player actually hears beats something merely in
+            // range; among equals, the most recently started one.
+            boolean better = best == null
+                || (listener && !bestIsListener)
+                || (listener == bestIsListener && playback.getStartTime() > best.getStartTime());
+            if (better) {
+                best = playback;
+                bestIsListener = listener;
+            }
+        }
+        return best;
+    }
+
+    /**
      * Stops all active playbacks (used on plugin disable).
      */
     public void stopAllPlaybacks() {
@@ -374,7 +488,7 @@ public class PlaybackManager {
         String soundKey = disc.getSoundKey();
 
         for (Player player : players) {
-            if (player.isOnline()) {
+            if (player.isOnline() && plugin.getPlayerPreferencesManager().isMusicEnabled(player.getUniqueId())) {
                 playSound(player, location, soundKey);
                 playback.addListener(player);
             }
@@ -413,6 +527,27 @@ public class PlaybackManager {
      * @return true if player should hear the sound
      */
     private boolean shouldPlayerHearPlayback(Player player, Location location, PlaybackRange range) {
+        // Players who turned plugin music off never enter a listener set
+        if (!plugin.getPlayerPreferencesManager().isMusicEnabled(player.getUniqueId())) {
+            return false;
+        }
+        return isInPlaybackRange(player, location, range);
+    }
+
+    /**
+     * Pure range test, without the per-player music toggle.
+     *
+     * <p>Separate from {@link #shouldPlayerHearPlayback} because commands like
+     * {@code /cjb skip} need to resolve "what is playing near me" as a spatial
+     * question, independent of whether that player is currently being sent the
+     * sound.
+     *
+     * @param player Player to check
+     * @param location Playback location
+     * @param range Playback range
+     * @return true if the player is within range
+     */
+    private boolean isInPlaybackRange(Player player, Location location, PlaybackRange range) {
         switch (range.getType()) {
             case GLOBAL:
                 // All players on the server
@@ -449,7 +584,8 @@ public class PlaybackManager {
      */
     private void playSound(Player player, Location location, String soundKey) {
         try {
-            float volume = plugin.getConfigManager().getVolume();
+            // Personal volume replaces the server volume for this listener
+            float volume = plugin.getPlayerPreferencesManager().effectiveVolume(player.getUniqueId());
             player.playSound(location, soundKey, SOUND_CATEGORY, volume, DEFAULT_PITCH);
 
             if (plugin.getConfigManager().isDebug()) {
@@ -668,7 +804,8 @@ public class PlaybackManager {
      * @param loop Whether to loop the playlist
      */
     public void startPlaylistPlayback(Location location, DiscPlaylist playlist, boolean loop) {
-        startPlaylistPlayback(location, playlist, loop, new PlaybackRange(PlaybackRange.RangeType.NORMAL));
+        startPlaylistPlayback(location, playlist, loop ? RepeatMode.ALL : RepeatMode.OFF, false,
+            new PlaybackRange(PlaybackRange.RangeType.NORMAL));
     }
 
     /**
@@ -679,12 +816,27 @@ public class PlaybackManager {
      * @param range Playback range for all discs in playlist
      */
     public void startPlaylistPlayback(Location location, DiscPlaylist playlist, boolean loop, PlaybackRange range) {
+        startPlaylistPlayback(location, playlist, loop ? RepeatMode.ALL : RepeatMode.OFF, false, range);
+    }
+
+    /**
+     * Starts a playlist with an explicit repeat mode and shuffle setting.
+     *
+     * @param location Location to play at
+     * @param playlist Playlist to play
+     * @param repeatMode What happens when a track ends
+     * @param shuffle Whether to play the discs in random order
+     * @param range Playback range for all discs in the playlist
+     */
+    public void startPlaylistPlayback(Location location, DiscPlaylist playlist,
+                                      RepeatMode repeatMode, boolean shuffle, PlaybackRange range) {
         if (location == null || playlist == null) {
             return;
         }
 
-        // Get discs from playlist
-        List<CustomDisc> discs = plugin.getDiscManager().getDiscsFromPlaylist(playlist.getId());
+        // Resolve from the playlist object, not its ID - an ad-hoc playlist such
+        // as a player's favourites is never registered and would resolve empty
+        List<CustomDisc> discs = plugin.getDiscManager().resolveDiscs(playlist);
         if (discs.isEmpty()) {
             plugin.getLogger().warning("Cannot start playlist '" + playlist.getId() + "': No valid discs found");
             return;
@@ -696,7 +848,7 @@ public class PlaybackManager {
         stopPlayback(location);
 
         // Create playlist queue with range
-        PlaylistQueue queue = new PlaylistQueue(discs, loop, range);
+        PlaylistQueue queue = new PlaylistQueue(discs, repeatMode, shuffle, range);
         playlistQueues.put(locationKey, queue);
 
         // Start playing first disc
@@ -705,8 +857,80 @@ public class PlaybackManager {
             startPlayback(location, firstDisc, false, range);
 
             plugin.getLogger().info("Started playlist '" + playlist.getId() + "' at " + locationKey +
-                " (" + queue.getSize() + " discs, loop: " + loop + ", range: " + range.toString() + ")");
+                " (" + queue.getSize() + " discs, repeat: " + repeatMode.display()
+                + ", shuffle: " + shuffle + ", range: " + range.toString() + ")");
         }
+    }
+
+    /**
+     * Skips to the next track of the playlist running at a location.
+     *
+     * <p>Without a playlist there is nothing to advance to, so a single disc is
+     * simply stopped - the sound engine cannot seek, only start and stop.
+     *
+     * @param location playback location
+     * @return the disc now playing, or null if playback just stopped
+     */
+    public CustomDisc skipToNext(Location location) {
+        if (location == null || !isPlaying(location)) {
+            return null;
+        }
+        String locationKey = getLocationKey(location);
+        PlaylistQueue queue = playlistQueues.get(locationKey);
+
+        // Keep the queue when stopping so progression can continue
+        stopPlayback(location, queue == null);
+        if (queue == null) {
+            return null;
+        }
+        handlePlaylistProgression(location);
+        JukeboxPlayback playback = activePlaybacks.get(locationKey);
+        return playback == null ? null : playback.getDisc();
+    }
+
+    /**
+     * Finds the playback a player is currently being sent sound from.
+     *
+     * <p>Resolved from the tracked listener sets - that is exactly who received
+     * the play-sound packet - preferring the most recently started playback when
+     * a player is in range of several.
+     *
+     * @param player the player
+     * @return what the player is hearing, or null
+     */
+    public NowPlaying getNowPlaying(Player player) {
+        JukeboxPlayback playback = getPlaybackFor(player);
+        if (playback == null) {
+            return null;
+        }
+        return new NowPlaying(playback.getDisc(), playback.getElapsedTicks(), NowPlaying.Source.JUKEBOX);
+    }
+
+    /**
+     * The active playback session a player is being sent sound from.
+     *
+     * <p>Resolved from the tracked listener sets - that is exactly who received
+     * the play-sound packet - preferring the most recently started session when
+     * a player is in range of several.
+     *
+     * @param player the player
+     * @return the session, or null if the player is hearing nothing
+     */
+    public JukeboxPlayback getPlaybackFor(Player player) {
+        if (player == null) {
+            return null;
+        }
+        UUID uuid = player.getUniqueId();
+        JukeboxPlayback best = null;
+        for (JukeboxPlayback playback : activePlaybacks.values()) {
+            if (playback == null || playback.isStopped() || !playback.getListeners().contains(uuid)) {
+                continue;
+            }
+            if (best == null || playback.getStartTime() > best.getStartTime()) {
+                best = playback;
+            }
+        }
+        return best;
     }
 
     /**

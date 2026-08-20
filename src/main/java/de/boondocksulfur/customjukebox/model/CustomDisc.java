@@ -62,7 +62,11 @@ public class CustomDisc {
         this.durationTicks = durationTicks;
         this.fragmentCount = fragmentCount;
         this.description = description != null ? description : "";
-        this.category = category != null ? category : "uncategorized";
+        // Keep "no category" as null. Substituting a synthetic "uncategorized"
+        // made hasCategory() always true, wrote a bogus category into disc.json
+        // for every disc, and silently undid the category detach performed by
+        // DiscManager#deleteCategory.
+        this.category = (category != null && !category.isEmpty()) ? category : null;
     }
 
     public String getId() {

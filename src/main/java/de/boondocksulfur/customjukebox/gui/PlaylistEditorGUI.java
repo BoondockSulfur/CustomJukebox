@@ -4,6 +4,7 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
+import de.boondocksulfur.customjukebox.utils.GuiPageUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -30,8 +31,15 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class PlaylistEditorGUI implements Listener {
 
+    private static final int DISCS_PER_PAGE = 45;
+    private static final int SLOT_PREV_PAGE = 45;
+    private static final int SLOT_INFO = 49;
+    private static final int SLOT_NEXT_PAGE = 53;
+
     private final CustomJukebox plugin;
     private final Map<UUID, String> activeEditors = new ConcurrentHashMap<>();
+    // Current page per editing player
+    private final Map<UUID, Integer> editorPage = new ConcurrentHashMap<>();
 
     public PlaylistEditorGUI(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -41,15 +49,28 @@ public class PlaylistEditorGUI implements Listener {
      * Opens the playlist editor for the given playlist.
      */
     public void openEditor(Player player, DiscPlaylist playlist) {
-        Inventory gui = createEditorInventory(playlist);
+        openEditor(player, playlist, 0);
+    }
+
+    /**
+     * Opens the playlist editor at a specific page of the disc list.
+     * @param player editor
+     * @param playlist playlist being edited
+     * @param page zero-based page (clamped)
+     */
+    public void openEditor(Player player, DiscPlaylist playlist, int page) {
+        int total = plugin.getDiscManager().getAllDiscs().size();
+        page = GuiPageUtil.clampPage(page, total, DISCS_PER_PAGE);
+        Inventory gui = createEditorInventory(playlist, page);
         activeEditors.put(player.getUniqueId(), playlist.getId());
+        editorPage.put(player.getUniqueId(), page);
         player.openInventory(gui);
     }
 
     /**
      * Creates the inventory GUI for the playlist editor.
      */
-    private Inventory createEditorInventory(DiscPlaylist playlist) {
+    private Inventory createEditorInventory(DiscPlaylist playlist, int page) {
         String title = "§6§lEdit: §e" + playlist.getDisplayName();
         Inventory inv = InventoryUtil.createGuiInventory(this, 54, title);
 
@@ -60,13 +81,11 @@ public class PlaylistEditorGUI implements Listener {
             playlistDiscIds.add(disc.getId());
         }
 
-        // Populate with all available discs
-        Collection<CustomDisc> allDiscs = plugin.getDiscManager().getAllDiscs();
+        // Populate with the current page of available discs
+        List<CustomDisc> allDiscs = new ArrayList<>(plugin.getDiscManager().getAllDiscs());
         int slot = 0;
 
-        for (CustomDisc disc : allDiscs) {
-            if (slot >= 45) break; // Leave space for info bar
-
+        for (CustomDisc disc : GuiPageUtil.slice(allDiscs, page, DISCS_PER_PAGE)) {
             ItemStack item = disc.createItemStack();
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
@@ -94,7 +113,7 @@ public class PlaylistEditorGUI implements Listener {
         }
 
         // Add info bar at bottom
-        addInfoBar(inv, playlist);
+        addInfoBar(inv, playlist, page, allDiscs.size());
 
         return inv;
     }
@@ -102,7 +121,7 @@ public class PlaylistEditorGUI implements Listener {
     /**
      * Adds the info bar at the bottom of the GUI.
      */
-    private void addInfoBar(Inventory inv, DiscPlaylist playlist) {
+    private void addInfoBar(Inventory inv, DiscPlaylist playlist, int page, int totalDiscs) {
         // Playlist info
         ItemStack info = new ItemStack(Material.MUSIC_DISC_13);
         ItemMeta infoMeta = info.getItemMeta();
@@ -116,9 +135,15 @@ public class PlaylistEditorGUI implements Listener {
             ItemUtil.setLore(infoMeta, lore);
             info.setItemMeta(infoMeta);
         }
-        inv.setItem(49, info);
+        inv.setItem(SLOT_INFO, info);
 
-        // Separator
+        // Paging
+        int pageCount = GuiPageUtil.pageCount(totalDiscs, DISCS_PER_PAGE);
+        inv.setItem(SLOT_PREV_PAGE, GuiPageUtil.previousButton(page));
+        inv.setItem(SLOT_NEXT_PAGE, GuiPageUtil.nextButton(page, pageCount));
+        inv.setItem(48, GuiPageUtil.pageIndicator(page, pageCount, totalDiscs, "discs"));
+
+        // Separator for the remaining bottom-row slots
         ItemStack separator = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta sepMeta = separator.getItemMeta();
         if (sepMeta != null) {
@@ -126,7 +151,7 @@ public class PlaylistEditorGUI implements Listener {
             separator.setItemMeta(sepMeta);
         }
         for (int i = 45; i < 54; i++) {
-            if (i != 49) {
+            if (inv.getItem(i) == null) {
                 inv.setItem(i, separator);
             }
         }
@@ -175,8 +200,15 @@ public class PlaylistEditorGUI implements Listener {
         ItemStack clicked = event.getCurrentItem();
         if (clicked == null || clicked.getType() == Material.AIR) return;
 
-        // Ignore bottom bar clicks
-        if (event.getSlot() >= 45) return;
+        int page = editorPage.getOrDefault(player.getUniqueId(), 0);
+
+        // Bottom bar: paging only, everything else is decoration
+        if (event.getSlot() >= 45) {
+            if (event.getSlot() == SLOT_PREV_PAGE || event.getSlot() == SLOT_NEXT_PAGE) {
+                openEditor(player, playlist, event.getSlot() == SLOT_PREV_PAGE ? page - 1 : page + 1);
+            }
+            return;
+        }
 
         // Get disc from clicked item
         CustomDisc disc = plugin.getDiscManager().getDiscFromItem(clicked);
@@ -211,10 +243,10 @@ public class PlaylistEditorGUI implements Listener {
             }
         }
 
-        // Refresh GUI
+        // Refresh GUI, staying on the current page
         playlist = plugin.getDiscManager().getPlaylist(playlistId); // Reload
         if (playlist != null) {
-            Inventory newInv = createEditorInventory(playlist);
+            Inventory newInv = createEditorInventory(playlist, page);
             player.getOpenInventory().getTopInventory().setContents(newInv.getContents());
         }
     }
@@ -232,6 +264,7 @@ public class PlaylistEditorGUI implements Listener {
         if (event.getReason() == InventoryCloseEvent.Reason.OPEN_NEW) return;
 
         // Remove from active editors
+        editorPage.remove(player.getUniqueId());
         String playlistId = activeEditors.remove(player.getUniqueId());
         if (playlistId != null) {
             MessageUtil.sendMessage(player, "&aPlaylist editor closed.");
@@ -248,5 +281,6 @@ public class PlaylistEditorGUI implements Listener {
      */
     public void cleanup(Player player) {
         activeEditors.remove(player.getUniqueId());
+        editorPage.remove(player.getUniqueId());
     }
 }

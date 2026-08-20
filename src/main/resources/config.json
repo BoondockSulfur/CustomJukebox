@@ -5,7 +5,8 @@
     "language": "en",
     "enable-gui": true,
     "debug": false,
-    "max-backups": 5
+    "max-backups": 5,
+    "backup-min-interval-minutes": 5
   },
   "discs": {
     "creeper-drops": true,
@@ -22,11 +23,17 @@
     "default-loop": false,
     "jukebox-hearing-radius": 64,
     "show-title": true,
-    "show-actionbar": true
+    "show-actionbar": true,
+    "show-progress-bar": true,
+    "progress-update-ticks": 20
   },
   "parrots": {
     "enable-dancing": true,
     "dance-radius": 3
+  },
+  "ambient-zones": {
+    "enabled": true,
+    "sound-category": "RECORDS"
   },
   "integrations": {
     "worldguard": true,

@@ -7,6 +7,7 @@ import de.boondocksulfur.customjukebox.gui.CategoryEditorGUI;
 import de.boondocksulfur.customjukebox.gui.DiscCreationWizard;
 import de.boondocksulfur.customjukebox.gui.DiscEditorGUIv2;
 import de.boondocksulfur.customjukebox.gui.PlaylistEditorGUI;
+import de.boondocksulfur.customjukebox.gui.ZoneEditorGUI;
 import de.boondocksulfur.customjukebox.integrations.PlaceholderAPIExpansion;
 import de.boondocksulfur.customjukebox.listeners.*;
 import de.boondocksulfur.customjukebox.manager.DiscManager;
@@ -14,6 +15,10 @@ import de.boondocksulfur.customjukebox.manager.ConfigManager;
 import de.boondocksulfur.customjukebox.manager.PlaybackManager;
 import de.boondocksulfur.customjukebox.manager.LanguageManager;
 import de.boondocksulfur.customjukebox.manager.IntegrationManager;
+import de.boondocksulfur.customjukebox.manager.AmbientZoneManager;
+import de.boondocksulfur.customjukebox.manager.NowPlayingManager;
+import de.boondocksulfur.customjukebox.manager.PlayerPreferencesManager;
+import de.boondocksulfur.customjukebox.utils.ConfigWriter;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
 import de.boondocksulfur.customjukebox.utils.UpdateChecker;
 import org.bstats.bukkit.Metrics;
@@ -24,12 +29,17 @@ import org.bukkit.plugin.java.JavaPlugin;
 public class CustomJukebox extends JavaPlugin {
 
     private static CustomJukebox instance;
+    private ConfigWriter configWriter;
     private DiscManager discManager;
     private ConfigManager configManager;
     private PlaybackManager playbackManager;
     private LanguageManager languageManager;
     private IntegrationManager integrationManager;
+    private AmbientZoneManager ambientZoneManager;
+    private PlayerPreferencesManager playerPreferencesManager;
+    private NowPlayingManager nowPlayingManager;
     private PlaylistEditorGUI playlistEditorGUI;
+    private ZoneEditorGUI zoneEditorGUI;
     private AdminGUI adminGUI;
     private DiscEditorGUIv2 discEditorGUIv2;
     private DiscCreationWizard discCreationWizard;
@@ -45,6 +55,9 @@ public class CustomJukebox extends JavaPlugin {
         getLogger().info("Starting CustomJukebox initialization...");
 
         // Initialize managers (order matters!)
+        // The config writer persists all JSON files off the server thread and
+        // must exist before the first manager can save anything
+        configWriter = new ConfigWriter(this);
         // ConfigManager creates config.json if it doesn't exist
         configManager = new ConfigManager(this);
         languageManager = new LanguageManager(this);  // After ConfigManager
@@ -52,10 +65,18 @@ public class CustomJukebox extends JavaPlugin {
         
         // DiscManager creates disc.json and auto-discovers sounds from resourcepack
         discManager = new DiscManager(this);
+        // Per-player settings (music on/off, personal volume, favourites) are
+        // consulted by every playback path, so they come before it
+        playerPreferencesManager = new PlayerPreferencesManager(this);
         playbackManager = new PlaybackManager(this);
+        // AmbientZoneManager needs discs, integrations and config (all ready above)
+        ambientZoneManager = new AmbientZoneManager(this);
+        // Reads from both playback managers, so it comes last
+        nowPlayingManager = new NowPlayingManager(this);
 
         // Initialize GUIs
         playlistEditorGUI = new PlaylistEditorGUI(this);
+        zoneEditorGUI = new ZoneEditorGUI(this);
         adminGUI = new AdminGUI(this);
         discEditorGUIv2 = new DiscEditorGUIv2(this);
         discCreationWizard = new DiscCreationWizard(this);
@@ -93,6 +114,11 @@ public class CustomJukebox extends JavaPlugin {
         // Check for updates
         checkForUpdates();
 
+        // Start ambient zones (auto-playing looping playlists in regions/radii).
+        // Done last so worlds and all managers are fully initialized.
+        ambientZoneManager.start();
+        nowPlayingManager.start();
+
         getLogger().info("CustomJukebox has been enabled!");
         getLogger().info("Version: " + getPluginMeta().getVersion());
         getLogger().info("Loaded " + discManager.getAllDiscs().size() + " custom discs");
@@ -101,6 +127,16 @@ public class CustomJukebox extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        // Hide progress bars before the music they describe goes away
+        if (nowPlayingManager != null) {
+            nowPlayingManager.stop();
+        }
+
+        // Stop ambient zones (cancels scanner + track timers, stops zone sounds)
+        if (ambientZoneManager != null) {
+            ambientZoneManager.stop();
+        }
+
         // Stop all active playbacks before shutdown
         if (playbackManager != null) {
             playbackManager.stopAllPlaybacks();
@@ -111,6 +147,11 @@ public class CustomJukebox extends JavaPlugin {
         // there, Folia retires the plugin's scheduled tasks itself on disable.
         if (!SchedulerUtil.isFolia()) {
             getServer().getScheduler().cancelTasks(this);
+        }
+
+        // Last: make sure every queued config write reaches disk before we go
+        if (configWriter != null) {
+            configWriter.shutdown();
         }
 
         getLogger().info("CustomJukebox has been disabled!");
@@ -126,6 +167,7 @@ public class CustomJukebox extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new DiscCraftListener(this), this);
         getServer().getPluginManager().registerEvents(new UpdateNotifyListener(this), this);
         getServer().getPluginManager().registerEvents(playlistEditorGUI, this);
+        getServer().getPluginManager().registerEvents(zoneEditorGUI, this);
         getServer().getPluginManager().registerEvents(adminGUI, this);
         getServer().getPluginManager().registerEvents(discEditorGUIv2, this);
         getServer().getPluginManager().registerEvents(discCreationWizard, this);
@@ -197,10 +239,23 @@ public class CustomJukebox extends JavaPlugin {
         languageManager.reload();
         integrationManager.reload();
         discManager.reload();
+        playerPreferencesManager.reload();
+        // Reload zones after discs so playlists resolve; this restarts the
+        // scanner and every zone timeline with the new config.
+        ambientZoneManager.reload();
+        nowPlayingManager.reload();
     }
 
     public static CustomJukebox getInstance() {
         return instance;
+    }
+
+    /**
+     * Asynchronous persistence for the plugin's JSON config files.
+     * @return the shared config writer
+     */
+    public ConfigWriter getConfigWriter() {
+        return configWriter;
     }
 
     public DiscManager getDiscManager() {
@@ -223,8 +278,32 @@ public class CustomJukebox extends JavaPlugin {
         return integrationManager;
     }
 
+    public AmbientZoneManager getAmbientZoneManager() {
+        return ambientZoneManager;
+    }
+
+    /**
+     * Per-player music settings: on/off, personal volume, favourites.
+     * @return the preferences manager
+     */
+    public PlayerPreferencesManager getPlayerPreferencesManager() {
+        return playerPreferencesManager;
+    }
+
+    /**
+     * Drives the "now playing" progress bar.
+     * @return the now-playing manager
+     */
+    public NowPlayingManager getNowPlayingManager() {
+        return nowPlayingManager;
+    }
+
     public PlaylistEditorGUI getPlaylistEditorGUI() {
         return playlistEditorGUI;
+    }
+
+    public ZoneEditorGUI getZoneEditorGUI() {
+        return zoneEditorGUI;
     }
 
     public AdminGUI getAdminGUI() {

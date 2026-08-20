@@ -2,24 +2,17 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
-import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
-import de.boondocksulfur.customjukebox.utils.InventoryUtil;
-import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class GuiSubcommand implements SubCommand, Listener {
@@ -65,40 +58,13 @@ public class GuiSubcommand implements SubCommand, Listener {
         return true;
     }
 
+    /**
+     * Opens the paged disc selection GUI. Building it lives in JukeboxListener
+     * so both entry points (jukebox interaction and this command) share one
+     * layout, one paging implementation and one click handler.
+     */
     private void openDiscGui(Player player) {
-        String guiTitle = plugin.getLanguageManager().getMessage("gui-title");
-        if (guiTitle == null || guiTitle.isEmpty()) {
-            guiTitle = "Custom Jukebox"; // Fallback
-        }
-
-        // Owned by the JukeboxListener so its click handler cancels clicks and
-        // handles disc selection for command-opened GUIs as well
-        Inventory gui = InventoryUtil.createGuiInventory(plugin.getJukeboxListener(), 54, guiTitle);
-
-        // Add discs
-        int slot = 0;
-        for (CustomDisc disc : plugin.getDiscManager().getAllDiscs()) {
-            if (slot >= 45) break; // Leave space for admin button
-            gui.setItem(slot++, disc.createItemStack());
-        }
-
-        // Admin button (only visible for admins)
-        if (player.hasPermission("customjukebox.admin")) {
-            ItemStack adminButton = new ItemStack(Material.NETHER_STAR);
-            ItemMeta meta = adminButton.getItemMeta();
-            if (meta != null) {
-                ItemUtil.setDisplayName(meta, "§6§l⚙ Admin Panel");
-                ItemUtil.setLore(meta, Arrays.asList(
-                    "§7Manage discs, playlists & categories",
-                    "",
-                    "§e§lClick to open Admin GUI"
-                ));
-                adminButton.setItemMeta(meta);
-            }
-            gui.setItem(49, adminButton);
-        }
-
-        player.openInventory(gui);
+        plugin.getJukeboxListener().openDiscSelection(player, 0);
     }
 
     @EventHandler

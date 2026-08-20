@@ -55,8 +55,9 @@ public class DiscDropListener implements Listener {
         if (isKilledBySkeleton(creeper)) {
             shouldDrop = true; // Always drop when killed by skeleton
         } else if (creeper.getKiller() != null) {
-            // Player killed creeper - use configurable chance
-            if (random.nextDouble() <= plugin.getConfigManager().getCreeperDropChance()) {
+            // Player killed creeper - use configurable chance (0.0 never drops)
+            double chance = plugin.getConfigManager().getCreeperDropChance();
+            if (chance > 0.0 && random.nextDouble() < chance) {
                 shouldDrop = true;
             }
         }
