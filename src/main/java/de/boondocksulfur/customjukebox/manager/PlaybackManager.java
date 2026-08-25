@@ -1,6 +1,8 @@
 package de.boondocksulfur.customjukebox.manager;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
+import de.boondocksulfur.customjukebox.api.events.CustomSoundPlayEvent;
+import de.boondocksulfur.customjukebox.api.events.CustomSoundStopEvent;
 import de.boondocksulfur.customjukebox.api.events.DiscPlaybackStartEvent;
 import de.boondocksulfur.customjukebox.api.events.DiscPlaybackStopEvent;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
@@ -343,7 +345,7 @@ public class PlaybackManager {
                 continue;
             }
             if (playback.getDisc().hasCustomSound()) {
-                stopSound(player, playback.getDisc().getSoundKey());
+                stopSound(player, playback.getDisc());
             }
             playback.removeListener(uuid);
         }
@@ -380,7 +382,7 @@ public class PlaybackManager {
             if (!isInPlaybackRange(player, location, playback.getRange())) {
                 continue;
             }
-            playSound(player, location, disc.getSoundKey());
+            playSound(player, location, disc);
             playback.addListener(player);
             attached++;
         }
@@ -485,11 +487,10 @@ public class PlaybackManager {
         }
 
         Location location = playback.getJukeboxLocation();
-        String soundKey = disc.getSoundKey();
 
         for (Player player : players) {
             if (player.isOnline() && plugin.getPlayerPreferencesManager().isMusicEnabled(player.getUniqueId())) {
-                playSound(player, location, soundKey);
+                playSound(player, location, disc);
                 playback.addListener(player);
             }
         }
@@ -507,13 +508,12 @@ public class PlaybackManager {
         }
 
         Location location = playback.getJukeboxLocation();
-        String soundKey = disc.getSoundKey();
         PlaybackRange range = playback.getRange();
 
         // Determine which players should hear the sound based on range
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (shouldPlayerHearPlayback(player, location, range)) {
-                playSound(player, location, soundKey);
+                playSound(player, location, disc);
                 playback.addListener(player);
             }
         }
@@ -577,15 +577,28 @@ public class PlaybackManager {
     }
 
     /**
-     * Plays a sound to a specific player.
+     * Plays a disc's sound to a specific player.
+     *
+     * <p>Single delivery point for jukebox playback: fires {@link CustomSoundPlayEvent}
+     * so companion plugins can take delivery over for individual players.
+     *
      * @param player Player
      * @param location Sound location
-     * @param soundKey Sound key (e.g. "customjukebox:epic_journey")
+     * @param disc Disc whose sound to play
      */
-    private void playSound(Player player, Location location, String soundKey) {
+    private void playSound(Player player, Location location, CustomDisc disc) {
+        String soundKey = disc.getSoundKey();
         try {
             // Personal volume replaces the server volume for this listener
             float volume = plugin.getPlayerPreferencesManager().effectiveVolume(player.getUniqueId());
+
+            CustomSoundPlayEvent deliveryEvent = new CustomSoundPlayEvent(
+                player, disc, location, CustomSoundPlayEvent.Source.JUKEBOX, volume);
+            plugin.getServer().getPluginManager().callEvent(deliveryEvent);
+            if (deliveryEvent.isCancelled()) {
+                return; // A companion plugin delivers this sound instead
+            }
+
             player.playSound(location, soundKey, SOUND_CATEGORY, volume, DEFAULT_PITCH);
 
             if (plugin.getConfigManager().isDebug()) {
@@ -641,23 +654,35 @@ public class PlaybackManager {
             return; // No custom sound to stop
         }
 
-        String soundKey = playback.getDisc().getSoundKey();
+        CustomDisc disc = playback.getDisc();
 
         for (UUID listenerId : playback.getListeners()) {
             Player player = plugin.getServer().getPlayer(listenerId);
             if (player != null && player.isOnline()) {
-                stopSound(player, soundKey);
+                stopSound(player, disc);
             }
         }
     }
 
     /**
-     * Stops a specific sound for a player.
+     * Stops a disc's sound for a player.
+     *
+     * <p>Counterpart to {@link #playSound}: fires {@link CustomSoundStopEvent} so a
+     * companion plugin that took delivery over can stop its own sound instead.
+     *
      * @param player Player
-     * @param soundKey Sound key
+     * @param disc Disc whose sound to stop
      */
-    private void stopSound(Player player, String soundKey) {
+    private void stopSound(Player player, CustomDisc disc) {
+        String soundKey = disc.getSoundKey();
         try {
+            CustomSoundStopEvent stopEvent = new CustomSoundStopEvent(
+                player, disc, CustomSoundPlayEvent.Source.JUKEBOX);
+            plugin.getServer().getPluginManager().callEvent(stopEvent);
+            if (stopEvent.isCancelled()) {
+                return; // A companion plugin stops this sound instead
+            }
+
             player.stopSound(soundKey, SOUND_CATEGORY);
 
             if (plugin.getConfigManager().isDebug()) {

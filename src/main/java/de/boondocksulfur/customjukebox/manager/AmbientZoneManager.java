@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import de.boondocksulfur.customjukebox.CustomJukebox;
+import de.boondocksulfur.customjukebox.api.events.CustomSoundPlayEvent;
+import de.boondocksulfur.customjukebox.api.events.CustomSoundStopEvent;
 import de.boondocksulfur.customjukebox.model.AmbientZone;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
@@ -907,6 +909,13 @@ public class AmbientZoneManager {
             return;
         }
         try {
+            CustomSoundPlayEvent deliveryEvent = new CustomSoundPlayEvent(
+                player, disc, player.getLocation(), CustomSoundPlayEvent.Source.AMBIENT_ZONE, volume);
+            plugin.getServer().getPluginManager().callEvent(deliveryEvent);
+            if (deliveryEvent.isCancelled()) {
+                return; // A companion plugin delivers this sound instead
+            }
+
             player.playSound(player.getLocation(), disc.getSoundKey(), soundCategory, volume, DEFAULT_PITCH);
         } catch (Exception e) {
             if (plugin.getConfigManager().isDebug()) {
@@ -921,6 +930,13 @@ public class AmbientZoneManager {
             return;
         }
         try {
+            CustomSoundStopEvent stopEvent = new CustomSoundStopEvent(
+                player, disc, CustomSoundPlayEvent.Source.AMBIENT_ZONE);
+            plugin.getServer().getPluginManager().callEvent(stopEvent);
+            if (stopEvent.isCancelled()) {
+                return; // A companion plugin stops this sound instead
+            }
+
             player.stopSound(disc.getSoundKey(), soundCategory);
         } catch (Exception e) {
             if (plugin.getConfigManager().isDebug()) {

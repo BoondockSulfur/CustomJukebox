@@ -150,6 +150,10 @@ public class CustomDisc {
 
             CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
             cmd.setFloats(List.of((float) customModelData));
+            // Java resource packs select the model by the float above. Bedrock
+            // companions (Geyser) need an exact match instead of a threshold, so
+            // the disc id also travels as a string tag - unique and stable.
+            cmd.setStrings(List.of(id));
             meta.setCustomModelDataComponent(cmd);
 
             // Store the disc ID so items stay uniquely identifiable even when

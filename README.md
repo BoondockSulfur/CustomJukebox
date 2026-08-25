@@ -1184,6 +1184,46 @@ String message = api.getMessage("disc-given");
 String messageWithPlaceholder = api.getMessage("disc-given", "disc", "Epic Journey");
 ```
 
+### Events
+
+All events live in `de.boondocksulfur.customjukebox.api.events`.
+
+| Event | Cancellable | Fired when |
+|-------|-------------|------------|
+| `DiscPlaybackStartEvent` | ✅ | A playback starts. Carries the listener set, which handlers may modify. |
+| `DiscPlaybackStopEvent` | ❌ | A playback stops (with a `StopReason`). |
+| `DiscRegisteredEvent` | ❌ | A disc is registered. |
+| `DiscRemovedEvent` | ❌ | A disc is removed. |
+| `CustomSoundPlayEvent` | ✅ | A disc sound is about to be delivered **to one player**. |
+| `CustomSoundStopEvent` | ✅ | A disc sound is about to be stopped **for one player**. |
+
+`DiscPlaybackStartEvent` is the coarse hook — one event per playback. The two
+`CustomSound*` events are the fine one: they fire once per player, on **every**
+delivery path (jukebox playback, a player walking into range, `/cjb music on`,
+ambient zones and radio), and let a companion plugin take delivery over for
+individual players:
+
+```java
+@EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+public void onSoundPlay(CustomSoundPlayEvent event) {
+    if (!isMyKindOfPlayer(event.getPlayer())) {
+        return;
+    }
+
+    // We deliver this one ourselves
+    event.setCancelled(true);
+    event.getPlayer().playSound(event.getLocation(), myOwnSoundKey(event.getDisc()),
+        SoundCategory.RECORDS, event.getVolume(), 1.0f);
+}
+```
+
+Cancelling suppresses only that one sound packet. The player stays a tracked
+listener of the playback, so the progress bar, `/cjb skip` and stop handling keep
+working for them — cancel `CustomSoundStopEvent` the same way to stop your own
+sound. This is exactly how the
+[Bedrock extension](https://github.com/BoondockSulfur/BS-CustomJukebox-BedrockExtension)
+plays discs to Bedrock clients, which need a different sound namespace.
+
 ### Add to your plugin
 
 **plugin.yml**:

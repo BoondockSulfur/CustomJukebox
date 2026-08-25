@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.5.0] - 2026-08-26
+
+### Added
+- **Per-player sound delivery hooks** — `CustomSoundPlayEvent` and `CustomSoundStopEvent`, both cancellable, fire once per player immediately before a custom disc sound is sent or stopped. Every delivery path passes through them: jukebox playback, a listener attaching to a running playback, `/cjb music on`, and ambient zones (including radio). Companion plugins that need to deliver a sound differently for some players — the Bedrock extension speaks a different sound namespace — cancel the event and play it themselves. Cancelling suppresses only that one sound packet; the player stays a tracked listener, so progress bar, `/cjb skip` and stop handling keep working for them.
+- **Disc items now carry their disc id as a `custom_model_data` string tag** in addition to the existing float. Java resource packs are unaffected (they select models by the float); the string gives Geyser an exact, unambiguous key to match a Bedrock item against, which a float threshold cannot provide. Disc items handed out before this version keep working but lack the tag — re-issue them with `/cjb give` if Bedrock textures matter.
+
+---
+
 ## [3.4.0] - 2026-08-16
 
 ### Added
