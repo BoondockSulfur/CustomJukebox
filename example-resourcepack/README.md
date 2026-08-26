@@ -282,9 +282,13 @@ disc item was handed out before you set `customModelData`. Re-issue it with
 `/cjb give`.
 
 **Bedrock players hear nothing.**
-Bedrock cannot read Java resource packs at all. Install the
+Bedrock cannot read a Java resource pack at all, so this pack does nothing for
+them. Install the
 [Bedrock Extension](https://modrinth.com/plugin/bs-customjukebox-bedrock-extension),
-which generates a Bedrock pack from these same files and hands it to Geyser.
+then put a **copy** of the same `.ogg` files into `plugins/CustomJukebox/sounds/`
+(and disc textures into `plugins/CustomJukebox/textures/`, if you want those on
+Bedrock too). The extension builds a Bedrock `.mcpack` from that folder — it does
+not read this pack — and hands it to Geyser. It needs CustomJukebox 3.5.0 or newer.
 
 ---
 
