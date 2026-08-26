@@ -186,9 +186,9 @@ public class DiscCreationWizard implements Listener {
         MessageUtil.sendMessage(player, "&6&l╚════════════════════════════════════╝");
         MessageUtil.sendMessage(player, "");
         MessageUtil.sendMessage(player, "&7Enter the &eSound Key &7(from resource pack):");
-        MessageUtil.sendMessage(player, "&8Format: &7namespace:sound_name");
-        MessageUtil.sendMessage(player, "&8Example: &7minecraft:music_disc." + session.discId);
-        MessageUtil.sendMessage(player, "&8Or: &7customjukebox:" + session.discId);
+        MessageUtil.sendMessage(player, "&8Example: &7music_disc." + session.discId);
+        MessageUtil.sendMessage(player, "&8This is the event key from your pack\'s sounds.json,");
+        MessageUtil.sendMessage(player, "&8not the .ogg filename. A namespace is optional.");
     }
 
     private void handleSoundKey(Player player, CreationSession session, String input) {

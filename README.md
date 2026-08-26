@@ -250,7 +250,7 @@ they cannot play produced audio. This plugin makes the opposite trade.
     "epic_journey": {
       "displayName": "&6Epic Journey",
       "author": "Composer Name",
-      "sound": "minecraft:music_disc.epic_journey",
+      "sound": "music_disc.epic_journey",
       "type": "MUSIC_DISC_13",
       "customModelData": 1001,
       "durationTicks": 4500,
@@ -265,7 +265,7 @@ they cannot play produced audio. This plugin makes the opposite trade.
     "calm_waters": {
       "displayName": "&bCalm Waters",
       "author": "Nature Sounds",
-      "sound": "minecraft:music_disc.calm_waters",
+      "sound": "music_disc.calm_waters",
       "type": "MUSIC_DISC_CAT",
       "customModelData": 1002,
       "durationTicks": 6000,
@@ -605,258 +605,98 @@ All changes are **instantly saved** to `disc.json`!
 
 ## 📦 Resource Pack Setup
 
-### Step 1: Create Pack Structure
+Your music lives in a resource pack; the plugin only tells the client which sound
+to play. **A ready-made pack is in [`example-resourcepack/`](example-resourcepack/)** —
+it already contains `pack.mcmeta`, `sounds.json`, item definitions, models and
+placeholder textures for the three discs the plugin ships with. Add your `.ogg`
+files, zip it, host it.
 
-```
-customjukebox-resourcepack/
-├── pack.mcmeta
-├── pack.png (optional)
-└── assets/
-    └── minecraft/
-        ├── sounds.json
-        ├── models/
-        │   └── item/
-        │       ├── music_disc_13.json
-        │       └── disc_fragment_5.json
-        ├── textures/
-        │   └── item/
-        │       ├── epic_journey_disc.png
-        │       └── fragment_epic_journey.png
-        └── sounds/
-            └── custom/
-                └── music/
-                    └── epic_journey.ogg
-```
+**[→ Full step-by-step guide: `example-resourcepack/README.md`](example-resourcepack/README.md)**
+— conversion, hosting, SHA-1, custom textures, pack formats and troubleshooting.
 
-### Step 2: Create `pack.mcmeta`
+The short version, and the part that goes wrong most often — four names have to
+line up:
 
-Minecraft 1.21.9+ uses a new metadata format with `min_format` and `max_format` instead of `pack_format`.
-
-#### Minecraft 1.21.9 – 1.21.10
+| Where | Value |
+|---|---|
+| The file | `assets/minecraft/sounds/records/my_song.ogg` |
+| `sounds.json` — event key | `"music_disc.my_song"` |
+| `sounds.json` — `name` | `"records/my_song"` (path under `sounds/`, no `.ogg`) |
+| `disc.json` — `sound` | `"music_disc.my_song"` |
 
 ```json
 {
-  "pack": {
-    "description": "CustomJukebox Resource Pack",
-    "min_format": [69, 0],
-    "max_format": [69, 0]
+  "music_disc.my_song": {
+    "sounds": [
+      { "name": "records/my_song", "stream": true }
+    ]
   }
 }
 ```
 
-#### Minecraft 1.21.11
+`"stream": true` is required — without it the whole track is loaded into memory
+before playback. Files must be **OGG Vorbis**; MP3 does not work:
+
+```bash
+ffmpeg -i input.mp3 -c:a libvorbis -q:a 5 my_song.ogg
+```
+
+Then in `server.properties`:
+
+```properties
+resource-pack=https://example.com/customjukebox-pack.zip
+resource-pack-sha1=<sha1sum of the zip>
+require-resource-pack=false
+```
+
+Regenerate the SHA-1 every time you change the pack, and zip the *contents* of the
+folder so that `pack.mcmeta` sits at the top level of the archive.
+
+> **Do not use a GitHub `/blob/` URL.** It points at a webpage, not the ZIP.
+> Use the release asset link: `https://github.com/user/repo/releases/download/v1/pack.zip`
+
+### Custom disc textures
+
+Since Minecraft 1.21.4, item appearance is no longer controlled by `overrides` /
+`predicate` blocks inside `models/item/*.json`. It is decided in
+`assets/minecraft/items/<base_item>.json`, dispatching on the `custom_model_data`
+value the plugin sets on the disc item:
 
 ```json
 {
-  "pack": {
-    "description": "CustomJukebox Resource Pack",
-    "min_format": [75, 0],
-    "max_format": [75, 0]
+  "model": {
+    "type": "minecraft:range_dispatch",
+    "property": "minecraft:custom_model_data",
+    "entries": [
+      { "threshold": 1001,
+        "model": { "type": "minecraft:model", "model": "minecraft:item/epic_journey_disc" } }
+    ],
+    "fallback": { "type": "minecraft:model", "model": "minecraft:item/music_disc_13" }
   }
 }
 ```
 
-#### Compatible with Minecraft 1.21.9, 1.21.10, and 1.21.11
+`threshold` is the disc's `customModelData`; `fallback` keeps vanilla discs looking
+vanilla. One entry per disc sharing that base item.
 
-```json
-{
-  "pack": {
-    "description": "CustomJukebox Resource Pack",
-    "min_format": [69, 0],
-    "max_format": [75, 0]
-  }
-}
-```
+### Pack format
 
-> **Note:** A compatibility range like this is only appropriate if your resource pack uses assets and features that are actually compatible across all versions in the range. If your pack relies on features introduced in a specific version, narrow the range accordingly.
+`example-resourcepack/pack.mcmeta` uses `min_format: [69, 0]` / `max_format: [88, 0]`,
+covering 1.21.9 through 26.2. Those fields exist since 1.21.9; on 1.21.4 – 1.21.8
+use a single `pack_format` instead:
 
-#### Older Minecraft versions (before 1.21.9)
-
-Versions before 1.21.9 use the legacy `pack_format` integer field. Each sub-version has its own format number:
-
-```json
-{
-  "pack": {
-    "pack_format": 34,
-    "description": "CustomJukebox Resource Pack"
-  }
-}
-```
-
-> **Important:** `pack_format: 34` is only correct for Minecraft 1.21.0. Each later sub-version bumps this number. Do not use `34` for all of "Minecraft 1.21.x". For Minecraft 1.21.9+, use the `min_format` / `max_format` style shown above.
-
-**Reference:**
 | Minecraft Version | Resource Pack Format |
 |-------------------|---------------------|
-| 1.21.0 | `pack_format: 34` |
 | 1.21.4 | `pack_format: 46` |
 | 1.21.5 | `pack_format: 55` |
-| 1.21.7 | `pack_format: 64` |
-| 1.21.9 – 1.21.10 | `min_format: [69, 0]` / `max_format: [69, 0]` |
-| 1.21.11 | `min_format: [75, 0]` / `max_format: [75, 0]` |
-| 1.20.5 – 1.20.6 | `pack_format: 32` |
+| 1.21.7 – 1.21.8 | `pack_format: 64` |
+| 1.21.9 – 1.21.10 | `69` |
+| 1.21.11 | `75` |
+| 26.1 – 26.1.2 | `84` |
+| 26.2 | `88` |
 
-> **Note:** Minecraft may still load a pack with an outdated format number if the assets are compatible, but the metadata should be accurate to avoid client warnings.
+A mismatched number usually still loads with a warning in the client's pack list.
 
-### Step 3: Create `sounds.json`
-
-```json
-{
-  "music_disc.epic_journey": {
-    "sounds": [
-      {
-        "name": "custom/music/epic_journey",
-        "stream": true
-      }
-    ]
-  },
-  "music_disc.calm_waters": {
-    "sounds": [
-      {
-        "name": "custom/music/calm_waters",
-        "stream": true
-      }
-    ]
-  }
-}
-```
-
-**Important Notes**:
-- `"stream": true` is **required** for music files to reduce memory usage
-- Sound event keys should use the format `music_disc.<disc_id>` (e.g., `music_disc.epic_journey`)
-- The `name` field is the path to your `.ogg` file relative to `assets/minecraft/sounds/`
-- Example: `"custom/music/epic_journey"` → `assets/minecraft/sounds/custom/music/epic_journey.ogg`
-
-### Step 4: Create Item Models
-
-**`assets/minecraft/models/item/music_disc_13.json`**:
-```json
-{
-  "parent": "item/generated",
-  "textures": {
-    "layer0": "item/music_disc_13"
-  },
-  "overrides": [
-    {
-      "predicate": {
-        "custom_model_data": 1001
-      },
-      "model": "item/custom/epic_journey_disc"
-    }
-  ]
-}
-```
-
-**`assets/minecraft/models/item/custom/epic_journey_disc.json`**:
-```json
-{
-  "parent": "item/generated",
-  "textures": {
-    "layer0": "item/epic_journey_disc"
-  }
-}
-```
-
-### Step 5: Convert Audio Files
-
-**Requirements**:
-- Format: **OGG Vorbis** (not MP3!)
-- Mono: Preferred (smaller file size)
-- Bitrate: 96-128 kbps recommended
-- Sample Rate: 44100 Hz
-
-**Conversion with ffmpeg**:
-```bash
-# MP3 → OGG
-ffmpeg -i input.mp3 -c:a libvorbis -q:a 4 epic_journey.ogg
-
-# WAV → OGG (Mono, 96kbps)
-ffmpeg -i input.wav -ac 1 -c:a libvorbis -b:a 96k epic_journey.ogg
-```
-
-### Step 6: Host Pack
-
-#### Option A: GitHub Releases (Recommended)
-1. Create a GitHub Repository
-2. Upload `customjukebox-pack.zip` as a Release asset
-3. Copy the **direct download URL** from the Release
-
-#### Option B: Own Server
-- Host on your web server (HTTPS required!)
-- URL: `https://yourserver.com/packs/customjukebox-pack.zip`
-
----
-
-### ⚠️ GitHub URL Warning
-
-> **Do not use GitHub `/blob/` URLs as server resource pack URLs.** They point to a GitHub webpage, not directly to the ZIP file. Minecraft cannot load resource packs from HTML pages.
-
-The URL you configure must download the ZIP file directly when opened in a browser.
-
-**Bad** (points to a webpage):
-```
-https://github.com/user/repo/blob/main/resource-pack.zip
-```
-
-**Better** (direct download from GitHub Releases):
-```
-https://github.com/user/repo/releases/download/v1/resource-pack.zip
-```
-
-**Optional raw fallback** (direct download from repo):
-```
-https://github.com/user/repo/raw/refs/heads/main/resource-pack.zip
-```
-
-> **Tip:** Use GitHub Releases for hosting downloadable resource packs. Release asset URLs are stable and always serve a direct file download.
-
----
-
-### 📦 ZIP Structure
-
-When creating your resource pack ZIP, make sure `pack.mcmeta` and `assets/` are at the **root** of the ZIP file.
-
-**Correct** (zip the contents):
-```
-resource-pack.zip
-├── pack.mcmeta
-├── pack.png
-└── assets/
-```
-
-**Incorrect** (zipped the folder itself):
-```
-resource-pack.zip
-└── resource-pack/
-    ├── pack.mcmeta
-    ├── pack.png
-    └── assets/
-```
-
-> **Important:** Select and zip the **contents** of your resource pack folder, not the folder itself. If `pack.mcmeta` is nested inside a subfolder in the ZIP, Minecraft will not recognize the pack.
-
----
-
-### 🛠️ Troubleshooting
-
-If you see this error in the server console:
-
-```
-Resource Pack hash is outdated. Updating it...
-Error updating the Resource Pack hash! Continuing with no hash...
-```
-
-Check the following:
-
-- [ ] **URL is a direct download** — not a GitHub `/blob/` URL. Open the URL in your browser; it should immediately download a `.zip` file, not show a webpage.
-- [ ] **`pack.mcmeta` is at the root of the ZIP** — not inside a subfolder.
-- [ ] **`assets/` is at the root of the ZIP** — same level as `pack.mcmeta`.
-- [ ] **You zipped the contents, not the folder** — see ZIP structure above.
-- [ ] **SHA1 hash is up to date** — recalculate the hash every time you change and re-upload the ZIP.
-- [ ] **Clear client resource pack cache** — if testing repeated uploads with the same URL, clients may use a cached (old) version. Delete the `server-resource-packs` folder in the client's `.minecraft` directory.
-- [ ] **URL serves a `.zip` file** — verify the download is a valid ZIP archive, not an HTML error page.
-
----
 
 ## 🧩 Fragment System
 
@@ -1311,11 +1151,11 @@ SOFTWARE.
 ## 📞 Support & Links
 
 - **Issues**: [Discord](https://discord.gg/xEJjF65K46)
-- **Documentation**: This README + inline config comments
+- **Documentation**: This README + [`example-resourcepack/README.md`](example-resourcepack/README.md) for the resource pack + inline config comments
 
 ---
 
-**Version**: 3.1.0
+**Version**: 3.5.1
 **Minecraft Version**: Paper/Folia 1.21.4+ and 26.x
 **Java Version**: 21+ (26.x servers run on Java 25 — the plugin jar works on both)
 **Author**: BoondockSulfur

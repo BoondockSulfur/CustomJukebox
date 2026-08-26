@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.5.1] - 2026-08-26
+
+### Changed
+- **The example resource pack is now a complete, working pack** rather than a sketch. It ships `pack.mcmeta`, `sounds.json`, item definitions, models and placeholder disc textures for exactly the three discs `disc.json` creates on first start — add three `.ogg` files, zip it, host it, and custom music works end to end. Its README is shipped inside the pack and covers conversion, hosting, SHA-1, custom textures, pack formats per Minecraft version and the failure modes that produce silence.
+- **The documented resource pack layout now matches a real, running server.** The pack guide and the shipped `disc.json` disagreed about where sounds live: the guide in the main README described `assets/minecraft/` with unprefixed sound keys, the example pack used a `customjukebox:` namespace, and the shipped discs followed the example. Anyone following the main README got a pack that did not match the discs the plugin had just created — silence, with no error on either side. Everything now uses the layout verified on a production server: sounds under `assets/minecraft/sounds/`, `sounds.json` event keys of the form `music_disc.<id>`, and the same key in `disc.json`. Existing servers are unaffected — `disc.json` is only written when it does not exist, and any sound key that resolves keeps working, namespace or not.
+- The disc creation wizard's sound key prompt now names the `sounds.json` event key it is actually asking for, instead of offering two namespaces without saying what the value refers to.
+
+### Fixed
+- **The documented way to give a disc a custom texture could not work on any supported version.** Both guides showed the pre-1.21.4 `overrides` / `predicate` block with an integer `custom_model_data`. Since 1.21.4 the plugin writes the `custom_model_data` *component* (floats), which a legacy predicate cannot match, and item appearance is decided in `assets/<ns>/items/<item>.json`. Both guides now document `range_dispatch` with a `fallback`, and the example pack ships working item definitions.
+- Corrected pack format numbers: the table stopped at 1.21.11 and did not cover 26.x (26.1–26.1.2 is `84`, 26.2 is `88`). `example-resourcepack/pack.mcmeta` claimed a range its own README contradicted.
+- The README footer had claimed version 3.1.0 since that release.
+
+---
+
 ## [3.5.0] - 2026-08-26
 
 ### Added

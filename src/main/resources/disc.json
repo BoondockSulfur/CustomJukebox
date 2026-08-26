@@ -30,7 +30,7 @@
     "epic_journey": {
       "displayName": "&6Epic Journey",
       "author": "&eUnknown Artist",
-      "sound": "customjukebox:music_disc.epic_journey",
+      "sound": "music_disc.epic_journey",
       "type": "MUSIC_DISC_13",
       "customModelData": 1001,
       "durationTicks": 6000,
@@ -46,7 +46,7 @@
     "ocean_dreams": {
       "displayName": "&bOcean Dreams",
       "author": "&eUnknown Artist",
-      "sound": "customjukebox:music_disc.ocean_dreams",
+      "sound": "music_disc.ocean_dreams",
       "type": "MUSIC_DISC_CAT",
       "customModelData": 1002,
       "durationTicks": 5400,
@@ -62,7 +62,7 @@
     "forest_walk": {
       "displayName": "&2Forest Walk",
       "author": "&eUnknown Artist",
-      "sound": "customjukebox:music_disc.forest_walk",
+      "sound": "music_disc.forest_walk",
       "type": "MUSIC_DISC_BLOCKS",
       "customModelData": 1003,
       "durationTicks": 4800,

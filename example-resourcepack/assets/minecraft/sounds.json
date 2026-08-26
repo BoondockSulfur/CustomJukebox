@@ -2,7 +2,7 @@
   "music_disc.epic_journey": {
     "sounds": [
       {
-        "name": "customjukebox:epic_journey",
+        "name": "records/epic_journey",
         "stream": true
       }
     ]
@@ -10,7 +10,7 @@
   "music_disc.ocean_dreams": {
     "sounds": [
       {
-        "name": "customjukebox:ocean_dreams",
+        "name": "records/ocean_dreams",
         "stream": true
       }
     ]
@@ -18,7 +18,7 @@
   "music_disc.forest_walk": {
     "sounds": [
       {
-        "name": "customjukebox:forest_walk",
+        "name": "records/forest_walk",
         "stream": true
       }
     ]

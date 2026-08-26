@@ -1,0 +1,14 @@
+Put your music here, as OGG Vorbis files.
+
+This example expects three of them, matching the discs CustomJukebox creates
+in disc.json on first start:
+
+    epic_journey.ogg
+    ocean_dreams.ogg
+    forest_walk.ogg
+
+Convert with ffmpeg:
+
+    ffmpeg -i input.mp3 -c:a libvorbis -q:a 5 epic_journey.ogg
+
+Then delete this file. See the README in the root of this pack for the rest.
