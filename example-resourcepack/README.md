@@ -6,6 +6,24 @@ CustomJukebox writes into `disc.json` on first start.
 
 No datapack is involved. Custom music needs a resource pack and nothing else.
 
+> ### ⚠️ This ZIP does not go anywhere inside your server folder
+>
+> Not in `datapacks/`, not in `plugins/`, not in `world/`. A **server** resource
+> pack is not installed as a file — it is downloaded by each player from a URL,
+> and the server only tells them where to find it. See **Step 5**.
+>
+> Dropping it into `datapacks/` gets you this on startup, because the server then
+> reads it as a datapack, where the same format number means a much older version:
+>
+> ```
+> Error reading pack metadata, attempting fallback type
+> com.google.gson.JsonParseException: Pack declares support for format 69, but game
+> versions supporting formats 17 to 81 require a supported_formats field.
+> ```
+>
+> The pack is fine — it is in the wrong folder. Delete it from `datapacks/` and
+> follow Step 5 instead.
+
 ---
 
 ## What is already here
@@ -148,6 +166,12 @@ in the game. If the discs look right there, the pack is fine and anything that
 still fails is server-side.
 
 ## Step 5 — Host it and tell the server
+
+This is the step people miss when self-hosting: there is **no folder on the server
+to put the ZIP in**. Minecraft has no such mechanism for server resource packs.
+The file has to sit somewhere reachable over HTTPS, and `server.properties` points
+players at it. That host can be anything — it does not have to be your server
+machine, and all the free options below work fine.
 
 The URL must **download the ZIP directly**. Minecraft cannot read a webpage.
 
