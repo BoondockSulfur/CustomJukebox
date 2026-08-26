@@ -173,7 +173,12 @@ public class UpdateChecker {
      * @param version2 Second version (e.g., "1.0.1")
      * @return negative if version1 < version2, positive if version1 > version2, 0 if equal
      */
-    private int compareVersions(String version1, String version2) {
+    /**
+     * Compares two dot-separated version strings numerically.
+     *
+     * @return negative if {@code version1} is older, 0 if equal, positive if newer
+     */
+    public static int compareVersions(String version1, String version2) {
         // Remove any non-numeric prefixes (like "v")
         version1 = version1.replaceAll("^[^0-9]+", "");
         version2 = version2.replaceAll("^[^0-9]+", "");
@@ -200,7 +205,7 @@ public class UpdateChecker {
      * Parses a version part, extracting only the numeric portion.
      * Handles versions like "1.3.0-SNAPSHOT" by ignoring suffixes.
      */
-    private int parseVersionPart(String part) {
+    private static int parseVersionPart(String part) {
         try {
             // Extract only the numeric part before any non-numeric character
             String numericPart = part.split("[^0-9]")[0];

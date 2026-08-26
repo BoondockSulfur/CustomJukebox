@@ -28,6 +28,14 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public class CustomJukebox extends JavaPlugin {
 
+    /**
+     * Oldest server this plugin can run on. 1.21.4 is where the
+     * CustomModelDataComponent float API arrived, which every disc item depends
+     * on. The plugin's api-version is '1.21', so a 1.21.0-1.21.3 server happily
+     * loads the jar and then dies the first time a disc is built.
+     */
+    private static final String MIN_SERVER_VERSION = "1.21.4";
+
     private static CustomJukebox instance;
     private ConfigWriter configWriter;
     private DiscManager discManager;
@@ -53,6 +61,11 @@ public class CustomJukebox extends JavaPlugin {
         instance = this;
 
         getLogger().info("Starting CustomJukebox initialization...");
+
+        if (!isSupportedServerVersion()) {
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
         // Initialize managers (order matters!)
         // The config writer persists all JSON files off the server thread and
@@ -123,6 +136,33 @@ public class CustomJukebox extends JavaPlugin {
         getLogger().info("Version: " + getPluginMeta().getVersion());
         getLogger().info("Loaded " + discManager.getAllDiscs().size() + " custom discs");
         getLogger().info("Using JSON configuration (JEXT-compatible)");
+    }
+
+    /**
+     * Verifies the server is new enough for the item API this plugin builds on.
+     * Says so plainly instead of letting it surface later as a NoSuchMethodError
+     * from deep inside disc creation.
+     *
+     * @return true if the plugin may continue starting up
+     */
+    private boolean isSupportedServerVersion() {
+        // "1.21.4-R0.1-SNAPSHOT" / "26.1.2-R0.1-SNAPSHOT" - the part before the
+        // first dash is the Minecraft version. Available on every server flavour,
+        // unlike the Paper-only getMinecraftVersion().
+        String raw = getServer().getBukkitVersion();
+        String version = raw.split("-")[0];
+
+        if (UpdateChecker.compareVersions(version, MIN_SERVER_VERSION) < 0) {
+            getLogger().severe("═══════════════════════════════════════════════════════════");
+            getLogger().severe("Minecraft " + version + " is not supported.");
+            getLogger().severe("CustomJukebox requires " + MIN_SERVER_VERSION + " or newer: custom discs use");
+            getLogger().severe("the item model API that arrived in " + MIN_SERVER_VERSION + ".");
+            getLogger().severe("On this server every disc would fail to be created.");
+            getLogger().severe("═══════════════════════════════════════════════════════════");
+            return false;
+        }
+
+        return true;
     }
 
     @Override
