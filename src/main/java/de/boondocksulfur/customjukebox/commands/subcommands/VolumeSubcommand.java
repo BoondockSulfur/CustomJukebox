@@ -3,6 +3,7 @@ package de.boondocksulfur.customjukebox.commands.subcommands;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.commands.SubCommand;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
+import de.boondocksulfur.customjukebox.utils.VolumeUtil;
 import org.bukkit.command.CommandSender;
 
 import java.util.ArrayList;
@@ -60,27 +61,13 @@ public class VolumeSubcommand implements SubCommand {
             return true;
         }
 
-        // Parse volume argument (number or preset)
-        float volume;
-        String presetName = null;
-
-        try {
-            // Try parsing as number first
-            volume = Float.parseFloat(args[0]);
-        } catch (NumberFormatException e) {
-            // Try parsing as preset
-            volume = parseVolumePreset(args[0].toLowerCase());
-            if (volume == -1) {
-                MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("volume-invalid"));
-                MessageUtil.sendMessage(sender, "&7Available presets: &esilent&7, &equiet&7, &enormal&7, &eloud&7, &emax");
-                return true;
-            }
-            presetName = args[0].toLowerCase();
-        }
-
-        // Validate range (0.0 to 4.0); the negated check also rejects NaN
-        if (!(volume >= 0.0f && volume <= 4.0f)) {
-            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("volume-invalid-range"));
+        // Parse volume argument: preset name, percentage, or plain number
+        String presetName = VolumeUtil.parsePreset(args[0].toLowerCase(Locale.ROOT))
+            != VolumeUtil.INVALID ? args[0].toLowerCase(Locale.ROOT) : null;
+        float volume = VolumeUtil.parse(args[0]);
+        if (volume == VolumeUtil.INVALID) {
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("volume-invalid"));
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("zone-volume-presets"));
             return true;
         }
 
@@ -121,38 +108,7 @@ public class VolumeSubcommand implements SubCommand {
         return true;
     }
 
-    /**
-     * Parses volume presets.
-     * @param preset Preset name (e.g. "low", "normal", "high")
-     * @return Volume value or -1 if invalid
-     */
-    private float parseVolumePreset(String preset) {
-        switch (preset) {
-            case "silent":
-            case "mute":
-            case "off":
-                return 0.0f;
-            case "quiet":
-            case "low":
-            case "soft":
-                return 0.5f;
-            case "normal":
-            case "default":
-            case "medium":
-                return 1.0f;
-            case "loud":
-            case "high":
-                return 2.0f;
-            case "max":
-            case "maximum":
-            case "full":
-                return 4.0f;
-            default:
-                return -1;
-        }
-    }
-
-    @Override
+        @Override
     public List<String> tabComplete(CommandSender sender, String[] args) {
         if (args.length == 1) {
             List<String> suggestions = new ArrayList<>();

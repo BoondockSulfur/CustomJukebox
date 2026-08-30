@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.6.0] - 2026-08-30
+
+### Fixed
+- **A zone's volume did nothing until the next track.** `/cjb zone volume` only stored the value. A resource pack sound carries the volume it was started with and the client offers no way to change it mid-playback, so on a looping ambient playlist the setting appeared to be ignored for minutes at a time. The zone now restarts immediately, which makes the change audible at once; `norestart` keeps the old behaviour for anyone who prefers it to take effect at the next track.
+- **Tab completion never offered a quiet value.** `/cjb zone volume <zone>` suggested `inherit, 1, 2, 3, 4` only. Since `1.0` is already full loudness — anything above it widens the audible radius rather than making the sound louder — "turn it down" reliably ended at 1 and stayed loud. The suggestions now start at the quiet end: presets plus `0.1`, `0.25`, `0.5`, `0.75`, `1`.
+
+### Added
+- Zone volume accepts the same presets as the global volume (`silent`, `quiet`, `normal`, `loud`, `max`) and percentages such as `30%`, instead of bare numbers only.
+- Volume feedback states the percentage — `0.30 (30%)` — and the help line spells out that `1.0` is full loudness and that higher values only widen the radius. The scale reads as if 1 were low; it is not.
+
+### Changed
+- Both volume commands share one parser (`VolumeUtil`), so presets, percentages and ranges cannot drift apart between the global volume and a zone's.
+
+---
+
 ## [3.5.1] - 2026-08-26
 
 ### Changed

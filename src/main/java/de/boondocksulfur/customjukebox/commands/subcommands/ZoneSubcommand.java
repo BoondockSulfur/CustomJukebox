@@ -6,6 +6,7 @@ import de.boondocksulfur.customjukebox.model.AmbientZone;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.utils.InputValidator;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
+import de.boondocksulfur.customjukebox.utils.VolumeUtil;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -398,6 +399,13 @@ public class ZoneSubcommand implements SubCommand {
             "value", zone.getSyncMode().name().toLowerCase(Locale.ROOT));
     }
 
+    /**
+     * {@code /cjb zone volume <zone> <inherit|preset|0-4|percent> [norestart]}
+     *
+     * <p>Applies immediately by restarting the zone, because a resource-pack
+     * sound keeps the volume it started with and would otherwise stay loud
+     * until the current track ends.
+     */
     private boolean handleVolume(CommandSender sender, String[] args) {
         AmbientZone zone = require(sender, args);
         if (zone == null) {
@@ -407,21 +415,33 @@ public class ZoneSubcommand implements SubCommand {
             msg(sender, "zone-usage-volume");
             return true;
         }
+
         if (args[2].equalsIgnoreCase("inherit")) {
             zone.setVolume(AmbientZone.VOLUME_INHERIT);
         } else {
-            Double vol = parseDouble(sender, args[2]);
-            if (vol == null) {
-                return true;
-            }
-            if (vol < 0 || vol > 4) {
+            float volume = VolumeUtil.parse(args[2]);
+            if (volume == VolumeUtil.INVALID) {
                 msg(sender, "zone-volume-range");
+                MessageUtil.sendMessage(sender, plugin.getLanguageManager()
+                    .getMessage("zone-volume-presets"));
                 return true;
             }
-            zone.setVolume(vol.floatValue());
+            zone.setVolume(volume);
         }
-        return applied(sender, zone, "zone-volume-set",
-            "value", zone.inheritsVolume() ? "inherit" : formatNumber(zone.getVolume()));
+
+        boolean restart = !(args.length > 3 && args[3].equalsIgnoreCase("norestart"));
+        String value = zone.inheritsVolume()
+            ? "inherit"
+            : VolumeUtil.describe(zone.getVolume());
+
+        applied(sender, zone, "zone-volume-set", "value", value);
+
+        if (restart && plugin.getAmbientZoneManager().restartZone(zone.getId())) {
+            msg(sender, "zone-volume-restarted");
+        } else if (!restart) {
+            msg(sender, "zone-volume-next-track");
+        }
+        return true;
     }
 
     private boolean handlePriority(CommandSender sender, String[] args) {
@@ -607,10 +627,17 @@ public class ZoneSubcommand implements SubCommand {
                 case "height":
                     return filter(args[2], "full", "limited");
                 case "volume":
-                    return filter(args[2], "inherit", "1", "2", "3", "4");
+                    // The quiet end has to be offered: suggesting only 1..4 was
+                    // why "turn it down" ended at 1, which is full loudness.
+                    return filter(args[2], "inherit", "silent", "quiet", "normal", "loud", "max",
+                        "0.1", "0.25", "0.5", "0.75", "1");
                 default:
                     return new ArrayList<>();
             }
+        }
+
+        if (args.length == 4 && action.equals("volume")) {
+            return filter(args[3], "norestart");
         }
 
         return new ArrayList<>();

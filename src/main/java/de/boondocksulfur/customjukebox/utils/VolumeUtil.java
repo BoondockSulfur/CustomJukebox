@@ -1,0 +1,96 @@
+package de.boondocksulfur.customjukebox.utils;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Shared parsing and formatting for every volume the plugin exposes, so the
+ * global volume and a zone's volume understand the same words and print the
+ * same way.
+ *
+ * <p>The scale is Minecraft's: 1.0 is the sound at full loudness, and anything
+ * above it only widens the audible radius rather than making the sound louder
+ * at its source. That surprises people - 1 looks like a low number on a 0..4
+ * scale - which is why {@link #describe(float)} always states the percentage.
+ */
+public final class VolumeUtil {
+
+    public static final float MIN = 0.0f;
+    public static final float MAX = 4.0f;
+    public static final float INVALID = -1f;
+
+    public static final List<String> PRESETS =
+        Arrays.asList("silent", "quiet", "normal", "loud", "max");
+
+    private VolumeUtil() {
+    }
+
+    /**
+     * Accepts a preset name, a percentage such as {@code 30%}, or a plain
+     * number.
+     *
+     * @return the volume, or {@link #INVALID} if the input is not usable
+     */
+    public static float parse(String input) {
+        if (input == null || input.isEmpty()) {
+            return INVALID;
+        }
+        String value = input.trim().toLowerCase(Locale.ROOT);
+
+        float preset = parsePreset(value);
+        if (preset != INVALID) {
+            return preset;
+        }
+
+        boolean percent = value.endsWith("%");
+        if (percent) {
+            value = value.substring(0, value.length() - 1).trim();
+        }
+        try {
+            float number = Float.parseFloat(value);
+            if (percent) {
+                number /= 100f;
+            }
+            // The negated comparison also rejects NaN
+            return (number >= MIN && number <= MAX) ? number : INVALID;
+        } catch (NumberFormatException e) {
+            return INVALID;
+        }
+    }
+
+    public static float parsePreset(String preset) {
+        switch (preset) {
+            case "silent":
+            case "mute":
+            case "off":
+                return 0.0f;
+            case "quiet":
+            case "low":
+            case "soft":
+                return 0.5f;
+            case "normal":
+            case "default":
+            case "medium":
+                return 1.0f;
+            case "loud":
+            case "high":
+                return 2.0f;
+            case "max":
+            case "maximum":
+            case "full":
+                return 4.0f;
+            default:
+                return INVALID;
+        }
+    }
+
+    /** e.g. {@code 0.30 (30%)} - the percentage is what people actually read. */
+    public static String describe(float volume) {
+        return String.format(Locale.ROOT, "%.2f (%d%%)", volume, Math.round(volume * 100));
+    }
+
+    public static String format(float volume) {
+        return String.format(Locale.ROOT, "%.2f", volume);
+    }
+}

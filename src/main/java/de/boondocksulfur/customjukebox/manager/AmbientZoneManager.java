@@ -1281,6 +1281,33 @@ public class AmbientZoneManager {
     }
 
     /**
+     * Restarts one live zone so a changed setting takes effect now instead of
+     * at the next track.
+     *
+     * <p>A resource-pack sound carries the volume it was started with; the
+     * client offers no way to change it mid-playback. Without this, lowering a
+     * zone's volume did nothing audible until the current track ended, which on
+     * a looping ambient playlist can be several minutes and reads as "the
+     * setting does not work".
+     *
+     * @param zoneId zone to restart
+     * @return true if the zone was actually playing and got restarted
+     */
+    public boolean restartZone(String zoneId) {
+        if (!running || zoneId == null) {
+            return false;
+        }
+        AmbientZone zone = zones.get(zoneId);
+        if (zone == null || !zone.isEnabled()) {
+            return false;
+        }
+        boolean wasActive = isZoneActive(zoneId);
+        deactivateZone(zoneId);
+        startZonePlayback(zone);
+        return wasActive;
+    }
+
+    /**
      * Rebuilds every live zone whose playlist contains the given disc.
      *
      * @param discId disc that was changed or removed
