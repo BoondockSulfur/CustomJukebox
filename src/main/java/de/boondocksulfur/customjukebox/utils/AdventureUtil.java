@@ -188,34 +188,52 @@ public class AdventureUtil {
      * Converts legacy color codes (&a, &b, &l, etc.) to MiniMessage format.
      * Example: "&aGreen &lBold" -> "<green>Green <bold>Bold"
      */
+    private static final char LEGACY_CHAR = '\u00a7';
+
+    private static final java.util.Map<Character, String> LEGACY_TAGS = java.util.Map.ofEntries(
+        java.util.Map.entry('0', "<black>"),
+        java.util.Map.entry('1', "<dark_blue>"),
+        java.util.Map.entry('2', "<dark_green>"),
+        java.util.Map.entry('3', "<dark_aqua>"),
+        java.util.Map.entry('4', "<dark_red>"),
+        java.util.Map.entry('5', "<dark_purple>"),
+        java.util.Map.entry('6', "<gold>"),
+        java.util.Map.entry('7', "<gray>"),
+        java.util.Map.entry('8', "<dark_gray>"),
+        java.util.Map.entry('9', "<blue>"),
+        java.util.Map.entry('a', "<green>"),
+        java.util.Map.entry('b', "<aqua>"),
+        java.util.Map.entry('c', "<red>"),
+        java.util.Map.entry('d', "<light_purple>"),
+        java.util.Map.entry('e', "<yellow>"),
+        java.util.Map.entry('f', "<white>"),
+        java.util.Map.entry('k', "<obfuscated>"),
+        java.util.Map.entry('l', "<bold>"),
+        java.util.Map.entry('m', "<strikethrough>"),
+        java.util.Map.entry('n', "<underlined>"),
+        java.util.Map.entry('o', "<italic>"),
+        java.util.Map.entry('r', "<reset>"));
+
     private static String convertLegacyToMiniMessage(String text) {
-        // Map legacy codes to MiniMessage tags
-        text = text.replace("&0", "<black>");
-        text = text.replace("&1", "<dark_blue>");
-        text = text.replace("&2", "<dark_green>");
-        text = text.replace("&3", "<dark_aqua>");
-        text = text.replace("&4", "<dark_red>");
-        text = text.replace("&5", "<dark_purple>");
-        text = text.replace("&6", "<gold>");
-        text = text.replace("&7", "<gray>");
-        text = text.replace("&8", "<dark_gray>");
-        text = text.replace("&9", "<blue>");
-        text = text.replace("&a", "<green>");
-        text = text.replace("&b", "<aqua>");
-        text = text.replace("&c", "<red>");
-        text = text.replace("&d", "<light_purple>");
-        text = text.replace("&e", "<yellow>");
-        text = text.replace("&f", "<white>");
-
-        // Formatting codes
-        text = text.replace("&k", "<obfuscated>");
-        text = text.replace("&l", "<bold>");
-        text = text.replace("&m", "<strikethrough>");
-        text = text.replace("&n", "<underlined>");
-        text = text.replace("&o", "<italic>");
-        text = text.replace("&r", "<reset>");
-
-        return text;
+        StringBuilder out = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            // Both marker characters, in either case. Leaving a section sign in
+            // place made MiniMessage throw, and the catch fell back to the
+            // legacy serializer - which printed every converted tag as visible
+            // text. That is why "&e" in an author or lore line showed up as
+            // "<yellow>" in game while unformatted text looked fine.
+            if ((c == '&' || c == LEGACY_CHAR) && i + 1 < text.length()) {
+                String tag = LEGACY_TAGS.get(Character.toLowerCase(text.charAt(i + 1)));
+                if (tag != null) {
+                    out.append(tag);
+                    i++;
+                    continue;
+                }
+            }
+            out.append(c);
+        }
+        return out.toString();
     }
 
     /**
