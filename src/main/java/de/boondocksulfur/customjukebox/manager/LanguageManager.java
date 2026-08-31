@@ -6,6 +6,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -83,11 +84,54 @@ public class LanguageManager {
             FileConfiguration defaultConfig = YamlConfiguration.loadConfiguration(
                 new InputStreamReader(defaultStream, StandardCharsets.UTF_8));
             config.setDefaults(defaultConfig);
+            mergeNewMessages(config, defaultConfig, langFile, langCode);
         }
 
         languages.put(langCode, config);
 
         plugin.getLogger().info("Loaded language: " + langCode);
+    }
+
+    /**
+     * Writes messages the shipped file has and the server's copy does not into
+     * the server's copy.
+     *
+     * <p>Missing keys already resolve through {@code setDefaults}, so nothing is
+     * broken without this - but the file on disk silently falls behind, and an
+     * admin cannot translate or reword a message they cannot see. A server that
+     * has run since an early version ends up with a language file missing
+     * everything added since.
+     *
+     * <p>Strictly additive, and it runs on every start rather than being gated
+     * on a version number: an existing message is never touched, so a reworded
+     * or translated line survives, and there is no version bookkeeping to get
+     * wrong.
+     */
+    private void mergeNewMessages(FileConfiguration config, FileConfiguration defaults,
+                                  File langFile, String langCode) {
+        int added = 0;
+        for (String key : defaults.getKeys(true)) {
+            if (defaults.isConfigurationSection(key)) {
+                continue;
+            }
+            // ignoreDefault, or every defaulted key would look present already
+            if (!config.contains(key, true)) {
+                config.set(key, defaults.get(key));
+                added++;
+            }
+        }
+
+        if (added == 0) {
+            return;
+        }
+        try {
+            config.save(langFile);
+            plugin.getLogger().info("Added " + added + " new message(s) to languages/"
+                + langCode + ".yml");
+        } catch (IOException e) {
+            plugin.getLogger().warning("Could not update languages/" + langCode + ".yml: "
+                + e.getMessage());
+        }
     }
 
     /**
