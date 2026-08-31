@@ -952,8 +952,17 @@ public class AmbientZoneManager {
     }
 
     /**
-     * Zone volume for one specific listener: a player who set a personal volume
-     * gets that instead, scaled so a quieter zone stays quieter than a loud one.
+     * Zone volume for one specific listener.
+     *
+     * <p>A zone with its own volume is absolute: it does not follow the server
+     * volume, and changing `/cjb volume` must not move it. Only a zone left on
+     * `inherit` follows the server.
+     *
+     * <p>A player's personal volume applies as a factor on top, where 1.0 means
+     * "as configured". Dividing the zone volume by the server volume, as this
+     * used to, made an explicitly set zone swing with a setting it was
+     * deliberately opted out of - at the default server volume of 4.0 a zone at
+     * 0.2 collapsed to a twentieth of the player's setting.
      */
     private float volumeFor(AmbientZone zone, UUID uuid) {
         float personal = plugin.getPlayerPreferencesManager().getPersonalVolume(uuid);
@@ -966,10 +975,7 @@ public class AmbientZoneManager {
         if (zone.inheritsVolume()) {
             return Math.max(0f, Math.min(4f, personal));
         }
-        // Keep the zone's own balance relative to the server volume
-        float serverVolume = plugin.getConfigManager().getVolume();
-        float ratio = serverVolume > 0 ? zone.getVolume() / serverVolume : 1f;
-        return Math.max(0f, Math.min(4f, personal * ratio));
+        return Math.max(0f, Math.min(4f, zone.getVolume() * personal));
     }
 
     // ==================== EVENTS / EXTERNAL HOOKS ====================

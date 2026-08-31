@@ -7,27 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [3.6.1] - 2026-08-31
+## [3.6.0] - 2026-08-31
 
 ### Fixed
-- **`norestart` had no effect.** The volume is part of a zone's playback signature, so saving the zone restarted it before the flag was ever read. Saving can now deliberately leave a running timeline alone, which is what the option always claimed to do.
+- **A zone's own volume followed the server volume for anyone with a personal volume set.** The per-listener calculation divided the zone's volume by the server volume, so a zone deliberately set to a fixed level swung with a setting it had opted out of — at the default server volume of 4.0, a zone at 0.2 collapsed to a twentieth of the player's setting, and lowering the server volume made that zone jump up instead of down. A zone with its own volume is now absolute; only zones left on `inherit` follow the server. A personal volume still applies on top, as a factor where 1.0 means "as configured".
 - **`/cjb volume ... restart` ignored ambient zones.** It restarted jukebox playbacks only, so a zone set to `inherit` kept playing at the old volume until its current track ended — the flag looked broken wherever ambient music was running. The same applied to `/cjb mute` and `/cjb unmute` with `restart`. Zones on `inherit` are now restarted as well.
-
-### Added
-- **Volume in decibels**, for both the global and the zone command: `-6db` is half, `-12db` a quarter, `-20db` a tenth. The linear scale is hard to judge by ear — 0.5 does not sound half as loud — while a decibel step always sounds like the same step. Positive values are refused, because above 1.0 Minecraft widens the audible radius instead of raising the volume.
-- Volume feedback now reads `0.30 (30%, -10.5 dB)` everywhere, and tab completion offers the quiet end in finer steps (`0.05`, `0.1`, `0.15`, `0.2`, `0.3`, …) plus common decibel values.
-
----
-
-## [3.6.0] - 2026-08-30
-
-### Fixed
-- **`/cjb zone volume` gained a `norestart` option.** A zone's volume is part of its playback signature, so saving it already restarted the zone and the change was audible at once. `norestart` suppresses that for anyone who would rather the current track finish at its old volume.
+- **`norestart` had no effect.** A zone's volume is part of its playback signature, so saving the zone restarted it before the flag was ever read. Saving can now deliberately leave a running timeline alone, which is what the option always claimed to do.
 - **Tab completion never offered a quiet value.** `/cjb zone volume <zone>` suggested `inherit, 1, 2, 3, 4` only. Since `1.0` is already full loudness — anything above it widens the audible radius rather than making the sound louder — "turn it down" reliably ended at 1 and stayed loud. The suggestions now start at the quiet end: presets plus `0.1`, `0.25`, `0.5`, `0.75`, `1`.
 
 ### Added
+- **Volume in decibels**, for both the global and the zone command: `-6db` is half, `-12db` a quarter, `-20db` a tenth. The linear scale is hard to judge by ear — 0.5 does not sound half as loud — while a decibel step always sounds like the same step. Positive values are refused, because above 1.0 Minecraft widens the audible radius instead of raising the volume.
+- `/cjb zone volume` takes a `norestart` option for anyone who would rather the current track finish at its old volume.
 - Zone volume accepts the same presets as the global volume (`silent`, `quiet`, `normal`, `loud`, `max`) and percentages such as `30%`, instead of bare numbers only.
-- Volume feedback states the percentage — `0.30 (30%)` — and the help line spells out that `1.0` is full loudness and that higher values only widen the radius. The scale reads as if 1 were low; it is not.
+- Volume feedback states the percentage and decibels — `0.30 (30%, -10.5 dB)` — and the help line spells out that `1.0` is full loudness and that higher values only widen the radius. The scale reads as if 1 were low; it is not.
 
 ### Changed
 - Both volume commands share one parser (`VolumeUtil`), so presets, percentages and ranges cannot drift apart between the global volume and a zone's.
