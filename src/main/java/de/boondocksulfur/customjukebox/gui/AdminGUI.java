@@ -34,6 +34,11 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class AdminGUI implements Listener {
 
+    /** Visible characters of a name a list entry shows before the tooltip
+     *  grows past the menu. The item itself keeps its full name. */
+    private static final int ENTRY_NAME_LIMIT = 28;
+
+
     private static final long DELETE_CONFIRM_TIMEOUT_MILLIS = 10_000L;
 
     // List layout: entries occupy slots 9..44, the bottom row is navigation
@@ -124,6 +129,10 @@ public class AdminGUI implements Listener {
             ItemStack item = disc.createItemStack();
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
+                // Only this copy: the real disc keeps its full name, but a long
+                // one makes the tooltip run past the edge of the menu.
+                ItemUtil.setDisplayName(meta,
+                    AdventureUtil.fit(disc.getDisplayName(), ENTRY_NAME_LIMIT));
                 List<String> lore = ItemUtil.getLore(meta);
                 if (lore == null) lore = new ArrayList<>();
                 lore.add("");
@@ -165,7 +174,7 @@ public class AdminGUI implements Listener {
 
         for (DiscPlaylist playlist : GuiPageUtil.slice(playlists, page, ENTRIES_PER_PAGE)) {
             ItemStack item = createMenuItem(Material.NOTE_BLOCK,
-                "§b§l" + playlist.getDisplayName(),
+                "§b§l" + AdventureUtil.fit(playlist.getDisplayName(), ENTRY_NAME_LIMIT),
                 "§7ID: §e" + playlist.getId(),
                 "§7Description: §e" + playlist.getDescription(),
                 "§7Discs: §e" + playlist.getDiscCount(),
@@ -209,7 +218,7 @@ public class AdminGUI implements Listener {
         for (DiscCategory category : GuiPageUtil.slice(categories, page, ENTRIES_PER_PAGE)) {
             int discCount = plugin.getDiscManager().getDiscsByCategory(category.getId()).size();
             ItemStack item = createMenuItem(Material.BOOKSHELF,
-                "§d§l" + category.getDisplayName(),
+                "§d§l" + AdventureUtil.fit(category.getDisplayName(), ENTRY_NAME_LIMIT),
                 "§7ID: §e" + category.getId(),
                 "§7Description: §e" + category.getDescription(),
                 "§7Discs: §e" + discCount,
