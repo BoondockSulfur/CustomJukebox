@@ -21,6 +21,38 @@ public class MessageUtil {
      * @param sender The command sender (player or console)
      * @param message The message with & color codes
      */
+    /**
+     * Sends a fixed prefix followed by a value the user wrote themselves,
+     * rendered the way the game will render it.
+     *
+     * <p>{@link #sendMessage} understands only {@code &} codes, so echoing a
+     * name back through it printed hex colours and gradients as raw markup -
+     * the item came out right while the confirmation said
+     * {@code <gradient:#ff0000:#0000ff>Name</gradient>}. The prefix keeps the
+     * simple codes; only the value goes through the full parser.
+     */
+    public static void sendWithValue(CommandSender sender, String prefix, String value) {
+        sendWithValues(sender, prefix, value);
+    }
+
+    /**
+     * Alternating fixed text and user values: {@code text, value, text, value, ...}
+     * starting with text. Only the values go through the full parser.
+     */
+    public static void sendWithValues(CommandSender sender, String... parts) {
+        if (sender == null || parts.length == 0) {
+            return;
+        }
+        net.kyori.adventure.text.TextComponent.Builder builder = Component.text();
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i] == null ? "" : parts[i];
+            builder.append(i % 2 == 0
+                ? LEGACY_AMPERSAND.deserialize(part)
+                : AdventureUtil.parseComponent(part));
+        }
+        sender.sendMessage(builder.build());
+    }
+
     public static void sendMessage(CommandSender sender, String message) {
         if (message == null || message.isEmpty()) {
             return;

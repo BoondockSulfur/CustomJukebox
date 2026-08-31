@@ -34,6 +34,13 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class DiscEditorGUIv2 implements Listener {
 
+    /** How much of a name fits an inventory title before it runs past the frame. */
+    private static final int TITLE_NAME_LIMIT = 24;
+
+    /** Same idea for tooltip previews, which widen the whole tooltip. */
+    private static final int LORE_NAME_LIMIT = 32;
+
+
     /** First CustomModelData offered by the selector (matches disc.json defaults). */
     private static final int MODEL_DATA_PRESET_BASE = 1001;
     private static final int MODEL_DATA_PRESET_COUNT = 20;
@@ -236,7 +243,8 @@ public class DiscEditorGUIv2 implements Listener {
      * Creates the delete confirmation GUI inventory.
      */
     private Inventory createDeleteConfirmationGUI(CustomDisc disc) {
-        Inventory gui = InventoryUtil.createGuiInventory(this, 27, "§c§lDelete: " + disc.getDisplayName());
+        Inventory gui = InventoryUtil.createGuiInventory(this, 27,
+            "§c§lDelete: " + AdventureUtil.fit(disc.getDisplayName(), TITLE_NAME_LIMIT));
 
         // Disc preview
         gui.setItem(13, disc.createItemStack());
@@ -245,7 +253,7 @@ public class DiscEditorGUIv2 implements Listener {
         ItemStack confirm = createEditorItem(Material.RED_CONCRETE,
             "§c§l✖ CONFIRM DELETE",
             "§7This will permanently delete:",
-            "§e" + disc.getDisplayName() + " §7(§e" + disc.getId() + "§7)",
+            "§e" + AdventureUtil.fit(disc.getDisplayName(), LORE_NAME_LIMIT) + " §7(§e" + disc.getId() + "§7)",
             "",
             "§c§lWARNING: Cannot be undone!");
         gui.setItem(21, confirm);
@@ -416,7 +424,7 @@ public class DiscEditorGUIv2 implements Listener {
         // Display Name
         ItemStack displayName = createEditorItem(Material.NAME_TAG,
             "§e§lDisplay Name",
-            "§7Current: §r" + disc.getDisplayName(),
+            "§7Current: §r" + AdventureUtil.fit(disc.getDisplayName(), LORE_NAME_LIMIT),
             "",
             "§e§lClick to edit via chat");
         gui.setItem(10, displayName);
@@ -424,7 +432,7 @@ public class DiscEditorGUIv2 implements Listener {
         // Author
         ItemStack author = createEditorItem(Material.WRITABLE_BOOK,
             "§b§lAuthor",
-            "§7Current: §f" + disc.getAuthor(),
+            "§7Current: §f" + AdventureUtil.fit(disc.getAuthor(), LORE_NAME_LIMIT),
             "",
             "§e§lClick to edit via chat");
         gui.setItem(11, author);
@@ -726,11 +734,11 @@ public class DiscEditorGUIv2 implements Listener {
         switch (field) {
             case "displayName":
                 plugin.getDiscManager().updateDiscField(discId, "displayName", input);
-                MessageUtil.sendMessage(player, "&a✓ Display Name updated: &r" + input);
+                MessageUtil.sendWithValue(player, "&a✓ Display Name updated: &r", input);
                 break;
             case "author":
                 plugin.getDiscManager().updateDiscField(discId, "author", input);
-                MessageUtil.sendMessage(player, "&a✓ Author updated: &f" + input);
+                MessageUtil.sendWithValue(player, "&a✓ Author updated: &f", input);
                 break;
             case "soundKey":
                 if (!InputValidator.isValidSoundKey(input)) {

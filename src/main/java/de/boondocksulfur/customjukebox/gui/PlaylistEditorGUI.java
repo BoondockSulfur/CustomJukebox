@@ -5,6 +5,7 @@ import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
 import de.boondocksulfur.customjukebox.utils.GuiPageUtil;
+import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -30,6 +31,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * Thread-safe implementation using ConcurrentHashMap.
  */
 public class PlaylistEditorGUI implements Listener {
+
+    /** How much of a name fits an inventory title before it runs past the frame. */
+    private static final int TITLE_NAME_LIMIT = 24;
+
 
     private static final int DISCS_PER_PAGE = 45;
     private static final int SLOT_PREV_PAGE = 45;
@@ -71,7 +76,7 @@ public class PlaylistEditorGUI implements Listener {
      * Creates the inventory GUI for the playlist editor.
      */
     private Inventory createEditorInventory(DiscPlaylist playlist, int page) {
-        String title = "§6§lEdit: §e" + playlist.getDisplayName();
+        String title = "§6§lEdit: §e" + AdventureUtil.fit(playlist.getDisplayName(), TITLE_NAME_LIMIT);
         Inventory inv = InventoryUtil.createGuiInventory(this, 54, title);
 
         // Get all discs in playlist
@@ -227,7 +232,8 @@ public class PlaylistEditorGUI implements Listener {
             // Remove from playlist
             boolean success = plugin.getDiscManager().removeDiscFromPlaylist(playlistId, disc.getId());
             if (success) {
-                MessageUtil.sendMessage(player, "&a✓ Removed &e" + disc.getDisplayName() + " &afrom playlist &e" + playlist.getDisplayName());
+                MessageUtil.sendWithValues(player, "&a✓ Removed &e", disc.getDisplayName(),
+                    " &afrom playlist &e", playlist.getDisplayName());
             } else {
                 MessageUtil.sendMessage(player, "&c✗ Failed to remove disc from playlist");
                 plugin.getLogger().warning("Failed to remove disc '" + disc.getId() + "' from playlist '" + playlistId + "'");
@@ -236,7 +242,8 @@ public class PlaylistEditorGUI implements Listener {
             // Add to playlist
             boolean success = plugin.getDiscManager().addDiscToPlaylist(playlistId, disc.getId());
             if (success) {
-                MessageUtil.sendMessage(player, "&a✓ Added &e" + disc.getDisplayName() + " &ato playlist &e" + playlist.getDisplayName());
+                MessageUtil.sendWithValues(player, "&a✓ Added &e", disc.getDisplayName(),
+                    " &ato playlist &e", playlist.getDisplayName());
             } else {
                 MessageUtil.sendMessage(player, "&c✗ Failed to add disc to playlist");
                 plugin.getLogger().warning("Failed to add disc '" + disc.getId() + "' to playlist '" + playlistId + "'");

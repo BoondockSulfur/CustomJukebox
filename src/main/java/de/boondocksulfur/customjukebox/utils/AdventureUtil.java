@@ -96,6 +96,32 @@ public class AdventureUtil {
     }
 
     /**
+     * Shortens a name to a visible length, measured after formatting is
+     * resolved.
+     *
+     * <p>An inventory title is drawn into a fixed-width frame and simply runs
+     * past it when it is too long. The raw string is no guide to how wide it
+     * will be: {@code <gradient:#ff0000:#0000ff>Hi</gradient>} is 41 characters
+     * of markup around two visible ones, and cutting the raw string would slice
+     * a tag in half. So the visible text decides, and a name that has to be cut
+     * loses its formatting rather than its closing tags.
+     *
+     * @param text        the name, with or without formatting
+     * @param maxVisible  how many characters may show
+     * @return the name unchanged if it fits, otherwise plain and shortened
+     */
+    public static String fit(String text, int maxVisible) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        String plain = stripColor(text);
+        if (plain.length() <= maxVisible) {
+            return text;
+        }
+        return plain.substring(0, Math.max(1, maxVisible - 1)) + "\u2026";
+    }
+
+    /**
      * Converts a list of legacy strings to Adventure Components.
      *
      * @param lines List of legacy text strings
