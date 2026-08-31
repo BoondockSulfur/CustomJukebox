@@ -7,10 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.6.1] - 2026-08-31
+
+### Fixed
+- **`norestart` had no effect.** The volume is part of a zone's playback signature, so saving the zone restarted it before the flag was ever read. Saving can now deliberately leave a running timeline alone, which is what the option always claimed to do.
+- **`/cjb volume ... restart` ignored ambient zones.** It restarted jukebox playbacks only, so a zone set to `inherit` kept playing at the old volume until its current track ended — the flag looked broken wherever ambient music was running. The same applied to `/cjb mute` and `/cjb unmute` with `restart`. Zones on `inherit` are now restarted as well.
+
+### Added
+- **Volume in decibels**, for both the global and the zone command: `-6db` is half, `-12db` a quarter, `-20db` a tenth. The linear scale is hard to judge by ear — 0.5 does not sound half as loud — while a decibel step always sounds like the same step. Positive values are refused, because above 1.0 Minecraft widens the audible radius instead of raising the volume.
+- Volume feedback now reads `0.30 (30%, -10.5 dB)` everywhere, and tab completion offers the quiet end in finer steps (`0.05`, `0.1`, `0.15`, `0.2`, `0.3`, …) plus common decibel values.
+
+---
+
 ## [3.6.0] - 2026-08-30
 
 ### Fixed
-- **A zone's volume did nothing until the next track.** `/cjb zone volume` only stored the value. A resource pack sound carries the volume it was started with and the client offers no way to change it mid-playback, so on a looping ambient playlist the setting appeared to be ignored for minutes at a time. The zone now restarts immediately, which makes the change audible at once; `norestart` keeps the old behaviour for anyone who prefers it to take effect at the next track.
+- **`/cjb zone volume` gained a `norestart` option.** A zone's volume is part of its playback signature, so saving it already restarted the zone and the change was audible at once. `norestart` suppresses that for anyone who would rather the current track finish at its old volume.
 - **Tab completion never offered a quiet value.** `/cjb zone volume <zone>` suggested `inherit, 1, 2, 3, 4` only. Since `1.0` is already full loudness — anything above it widens the audible radius rather than making the sound louder — "turn it down" reliably ended at 1 and stayed loud. The suggestions now start at the quiet end: presets plus `0.1`, `0.25`, `0.5`, `0.75`, `1`.
 
 ### Added

@@ -400,7 +400,7 @@ public class ZoneSubcommand implements SubCommand {
     }
 
     /**
-     * {@code /cjb zone volume <zone> <inherit|preset|0-4|percent> [norestart]}
+     * {@code /cjb zone volume <zone> <inherit|preset|0-4|percent|dB> [norestart]}
      *
      * <p>Applies immediately by restarting the zone, because a resource-pack
      * sound keeps the volume it started with and would otherwise stay loud
@@ -434,13 +434,11 @@ public class ZoneSubcommand implements SubCommand {
             ? "inherit"
             : VolumeUtil.describe(zone.getVolume());
 
-        applied(sender, zone, "zone-volume-set", "value", value);
-
-        if (restart && plugin.getAmbientZoneManager().restartZone(zone.getId())) {
-            msg(sender, "zone-volume-restarted");
-        } else if (!restart) {
-            msg(sender, "zone-volume-next-track");
-        }
+        // The volume is part of the playback signature, so saving with
+        // applyLive restarts the zone by itself. Suppressing that is the only
+        // way `norestart` can mean anything.
+        applied(sender, zone, restart, "zone-volume-set", "value", value);
+        msg(sender, restart ? "zone-volume-restarted" : "zone-volume-next-track");
         return true;
     }
 
@@ -508,7 +506,12 @@ public class ZoneSubcommand implements SubCommand {
      * @return always true (commands report their own errors)
      */
     private boolean applied(CommandSender sender, AmbientZone zone, String key, String... pairs) {
-        plugin.getAmbientZoneManager().saveZone(zone);
+        return applied(sender, zone, true, key, pairs);
+    }
+
+    private boolean applied(CommandSender sender, AmbientZone zone, boolean applyLive,
+                            String key, String... pairs) {
+        plugin.getAmbientZoneManager().saveZone(zone, applyLive);
 
         java.util.Map<String, String> placeholders = new java.util.HashMap<>();
         placeholders.put("zone", zone.getId());
@@ -630,7 +633,8 @@ public class ZoneSubcommand implements SubCommand {
                     // The quiet end has to be offered: suggesting only 1..4 was
                     // why "turn it down" ended at 1, which is full loudness.
                     return filter(args[2], "inherit", "silent", "quiet", "normal", "loud", "max",
-                        "0.1", "0.25", "0.5", "0.75", "1");
+                        "0.05", "0.1", "0.15", "0.2", "0.3", "0.4", "0.5", "0.75", "1",
+                        "-20db", "-12db", "-6db", "-3db");
                 default:
                     return new ArrayList<>();
             }

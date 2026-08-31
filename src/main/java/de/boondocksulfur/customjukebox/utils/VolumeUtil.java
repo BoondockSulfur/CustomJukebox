@@ -43,6 +43,21 @@ public final class VolumeUtil {
             return preset;
         }
 
+        // Decibels give even steps to the ear where the linear scale does not:
+        // 0.5 is not "half as loud", but -6 dB always sounds like one step down.
+        if (value.endsWith("db")) {
+            try {
+                float db = Float.parseFloat(value.substring(0, value.length() - 2).trim());
+                if (db > 0) {
+                    return INVALID; // above 1.0 only widens the radius, so cap at 0 dB
+                }
+                float gain = (float) Math.pow(10, db / 20.0);
+                return Math.max(MIN, Math.min(MAX, gain));
+            } catch (NumberFormatException e) {
+                return INVALID;
+            }
+        }
+
         boolean percent = value.endsWith("%");
         if (percent) {
             value = value.substring(0, value.length() - 1).trim();
@@ -85,9 +100,16 @@ public final class VolumeUtil {
         }
     }
 
-    /** e.g. {@code 0.30 (30%)} - the percentage is what people actually read. */
+    /**
+     * e.g. {@code 0.30 (30%, -10.5 dB)} - the percentage is what people read,
+     * the decibels are what lets them judge the next step.
+     */
     public static String describe(float volume) {
-        return String.format(Locale.ROOT, "%.2f (%d%%)", volume, Math.round(volume * 100));
+        if (volume <= 0f) {
+            return "0.00 (silent)";
+        }
+        return String.format(Locale.ROOT, "%.2f (%d%%, %.1f dB)",
+            volume, Math.round(volume * 100), 20 * Math.log10(volume));
     }
 
     public static String format(float volume) {

@@ -65,6 +65,7 @@ public class MuteSubcommand implements SubCommand {
         // Restart active playbacks if requested
         if (restart) {
             plugin.getPlaybackManager().restartAllPlaybacks();
+            plugin.getAmbientZoneManager().restartInheritingZones();
         }
 
         // Send success message

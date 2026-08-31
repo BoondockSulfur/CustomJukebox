@@ -43,7 +43,7 @@ public class VolumeSubcommand implements SubCommand {
 
     @Override
     public String getUsage() {
-        return "/cjb volume <0.0-4.0|preset> [restart]";
+        return "/cjb volume <0.0-4.0|preset|percent|dB> [restart]";
     }
 
     @Override
@@ -57,7 +57,7 @@ public class VolumeSubcommand implements SubCommand {
         if (args.length == 0) {
             float currentVolume = plugin.getConfigManager().getVolume();
             MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("volume-current")
-                .replace("{volume}", String.format(Locale.ROOT, "%.2f", currentVolume)));
+                .replace("{volume}", VolumeUtil.describe(currentVolume)));
             return true;
         }
 
@@ -86,6 +86,10 @@ public class VolumeSubcommand implements SubCommand {
         // Restart active playbacks if requested
         if (restart) {
             plugin.getPlaybackManager().restartAllPlaybacks();
+            // Zones on `inherit` follow this volume but are not jukebox
+            // playbacks, so they need restarting separately or the flag looks
+            // like it did nothing wherever ambient music is playing.
+            plugin.getAmbientZoneManager().restartInheritingZones();
         }
 
         // Send success message
@@ -93,10 +97,10 @@ public class VolumeSubcommand implements SubCommand {
         if (presetName != null) {
             message = plugin.getLanguageManager().getMessage("volume-set-preset")
                 .replace("{preset}", presetName)
-                .replace("{volume}", String.format(Locale.ROOT, "%.2f", volume));
+                .replace("{volume}", VolumeUtil.describe(volume));
         } else {
             message = plugin.getLanguageManager().getMessage("volume-set")
-                .replace("{volume}", String.format(Locale.ROOT, "%.2f", volume));
+                .replace("{volume}", VolumeUtil.describe(volume));
         }
 
         if (restart) {
@@ -108,7 +112,7 @@ public class VolumeSubcommand implements SubCommand {
         return true;
     }
 
-        @Override
+    @Override
     public List<String> tabComplete(CommandSender sender, String[] args) {
         if (args.length == 1) {
             List<String> suggestions = new ArrayList<>();

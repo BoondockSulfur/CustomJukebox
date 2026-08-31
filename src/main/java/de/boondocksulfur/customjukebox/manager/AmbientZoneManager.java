@@ -1130,9 +1130,22 @@ public class AmbientZoneManager {
      * @param zone the zone to save and (re)activate
      */
     public void saveZone(AmbientZone zone) {
+        saveZone(zone, true);
+    }
+
+    /**
+     * @param applyLive false keeps the running timeline untouched, so a changed
+     *                  volume is picked up by the next track instead of
+     *                  restarting the current one. The volume is part of the
+     *                  playback signature, so without this every save restarts
+     *                  the zone and a "do not restart" option cannot work.
+     */
+    public void saveZone(AmbientZone zone, boolean applyLive) {
         zones.put(zone.getId(), zone);
         persistZone(zone);
-        applyZoneChange(zone);
+        if (applyLive) {
+            applyZoneChange(zone);
+        }
     }
 
     /**
@@ -1281,30 +1294,29 @@ public class AmbientZoneManager {
     }
 
     /**
-     * Restarts one live zone so a changed setting takes effect now instead of
-     * at the next track.
+     * Restarts every zone that follows the server volume.
      *
-     * <p>A resource-pack sound carries the volume it was started with; the
-     * client offers no way to change it mid-playback. Without this, lowering a
-     * zone's volume did nothing audible until the current track ended, which on
-     * a looping ambient playlist can be several minutes and reads as "the
-     * setting does not work".
+     * <p>`/cjb volume ... restart` only restarted jukebox playbacks, so a zone
+     * on `inherit` kept playing at the old volume until its current track
+     * ended - the restart flag appeared to do nothing where zones were
+     * concerned.
      *
-     * @param zoneId zone to restart
-     * @return true if the zone was actually playing and got restarted
+     * @return how many zones were restarted
      */
-    public boolean restartZone(String zoneId) {
-        if (!running || zoneId == null) {
-            return false;
+    public int restartInheritingZones() {
+        if (!running || !plugin.getConfigManager().isAmbientZonesEnabled()) {
+            return 0;
         }
-        AmbientZone zone = zones.get(zoneId);
-        if (zone == null || !zone.isEnabled()) {
-            return false;
+        int restarted = 0;
+        for (AmbientZone zone : zones.values()) {
+            if (!zone.inheritsVolume() || !zone.isEnabled() || !isZoneActive(zone.getId())) {
+                continue;
+            }
+            deactivateZone(zone.getId());
+            startZonePlayback(zone);
+            restarted++;
         }
-        boolean wasActive = isZoneActive(zoneId);
-        deactivateZone(zoneId);
-        startZonePlayback(zone);
-        return wasActive;
+        return restarted;
     }
 
     /**
