@@ -33,6 +33,7 @@
   },
   "ambient-zones": {
     "enabled": true,
+    "pause-during-disc": true,
     "sound-category": "RECORDS"
   },
   "integrations": {

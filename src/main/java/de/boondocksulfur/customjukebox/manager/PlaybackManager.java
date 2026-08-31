@@ -267,6 +267,15 @@ public class PlaybackManager {
         playback.setStopped(true);
         activePlaybacks.remove(locationKey);
 
+        // ... and hand the listeners back to whatever zone they are standing
+        // in. Only once the playback is off the map, or the zone would still
+        // see the disc as audible and stay silent. Not between the tracks of a
+        // playlist though - the next one starts immediately, and the zone would
+        // blip in for a moment in between.
+        if (clearPlaylistQueue && plugin.getConfigManager().pauseZonesDuringDisc()) {
+            resumeZonesFor(playback);
+        }
+
         // Remove playlist queue if requested (don't remove when progressing to next track)
         if (clearPlaylistQueue) {
             playlistQueues.remove(locationKey);
@@ -577,6 +586,23 @@ public class PlaybackManager {
     }
 
     /**
+     * Lets ambient zones take over again for everyone who was listening to a
+     * playback that just ended.
+     *
+     * @param playback the playback that stopped
+     */
+    private void resumeZonesFor(JukeboxPlayback playback) {
+        for (UUID listenerId : playback.getListeners()) {
+            Player listener = plugin.getServer().getPlayer(listenerId);
+            if (listener == null || !listener.isOnline()) {
+                continue;
+            }
+            SchedulerUtil.runPlayerTask(plugin, listener,
+                () -> plugin.getAmbientZoneManager().resumeSoundFor(listener));
+        }
+    }
+
+    /**
      * Plays a disc's sound to a specific player.
      *
      * <p>Single delivery point for jukebox playback: fires {@link CustomSoundPlayEvent}
@@ -589,6 +615,12 @@ public class PlaybackManager {
     private void playSound(Player player, Location location, CustomDisc disc) {
         String soundKey = disc.getSoundKey();
         try {
+            // A disc takes the floor: whatever the ambient zone was playing for
+            // this listener stops, rather than the two running over each other.
+            if (plugin.getConfigManager().pauseZonesDuringDisc()) {
+                plugin.getAmbientZoneManager().stopSoundFor(player);
+            }
+
             // Personal volume replaces the server volume for this listener
             float volume = plugin.getPlayerPreferencesManager().effectiveVolume(player.getUniqueId());
 

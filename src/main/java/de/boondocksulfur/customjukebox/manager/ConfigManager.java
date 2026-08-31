@@ -450,6 +450,17 @@ public class ConfigManager {
     }
 
     /**
+     * Whether ambient music steps aside while a player can hear a jukebox.
+     *
+     * <p>A disc is something a player put on; a zone is background. Playing both
+     * means two songs at once, so by default the zone falls silent for that
+     * listener and returns when the disc is over. Set to false to layer them.
+     */
+    public boolean pauseZonesDuringDisc() {
+        return getBoolean("ambient-zones.pause-during-disc", true);
+    }
+
+    /**
      * Sound category used for ambient-zone playback.
      *
      * <p>Defaults to {@code RECORDS}, the same category jukebox playback uses, so

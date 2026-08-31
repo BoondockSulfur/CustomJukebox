@@ -908,6 +908,12 @@ public class AmbientZoneManager {
         if (!plugin.getPlayerPreferencesManager().isMusicEnabled(player.getUniqueId())) {
             return;
         }
+        // A disc is deliberate, a zone is background: never lay one over the
+        // other. Guarding here covers every route into zone audio - a new
+        // track, a player arriving, a resume - rather than each caller.
+        if (isHearingDisc(player)) {
+            return;
+        }
         try {
             CustomSoundPlayEvent deliveryEvent = new CustomSoundPlayEvent(
                 player, disc, player.getLocation(), CustomSoundPlayEvent.Source.AMBIENT_ZONE, volume);
@@ -1297,6 +1303,17 @@ public class AmbientZoneManager {
                 startZonePlayback(zone);
             }
         }
+    }
+
+    /**
+     * Whether a jukebox disc is currently audible to this player.
+     *
+     * @param player the listener
+     * @return true if zone audio should stay silent for them
+     */
+    private boolean isHearingDisc(Player player) {
+        return plugin.getConfigManager().pauseZonesDuringDisc()
+            && plugin.getPlaybackManager().getAudiblePlaybackFor(player) != null;
     }
 
     /**
