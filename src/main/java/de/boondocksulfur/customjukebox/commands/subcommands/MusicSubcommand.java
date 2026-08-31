@@ -5,6 +5,7 @@ import de.boondocksulfur.customjukebox.commands.SubCommand;
 import de.boondocksulfur.customjukebox.model.NowPlaying;
 import de.boondocksulfur.customjukebox.model.PlayerPreferences;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
+import de.boondocksulfur.customjukebox.utils.VolumeUtil;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -124,25 +125,37 @@ public class MusicSubcommand implements SubCommand {
             return true;
         }
 
-        float volume;
-        try {
-            volume = Float.parseFloat(raw);
-        } catch (NumberFormatException e) {
+        // Same vocabulary as the server and zone commands: presets, percent, dB
+        float volume = VolumeUtil.parse(raw);
+        if (volume == VolumeUtil.INVALID) {
             MessageUtil.sendMessage(player, plugin.getLanguageManager()
                 .getMessage("music-volume-invalid", "value", args[1]));
-            return true;
-        }
-        // The negated form also rejects NaN
-        if (!(volume >= 0.0f && volume <= 4.0f)) {
-            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("music-volume-range"));
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("zone-volume-presets"));
             return true;
         }
 
         plugin.getPlayerPreferencesManager().setPersonalVolume(player.getUniqueId(), volume);
         MessageUtil.sendMessage(player, plugin.getLanguageManager()
-            .getMessage("music-volume-set", "value", String.format(Locale.ROOT, "%.1f", volume)));
-        MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("music-volume-next-track"));
+            .getMessage("music-volume-set", "value", VolumeUtil.describe(volume)));
+
+        // A resource pack sound keeps the volume it started with, so without
+        // restarting this player's track the setting did nothing until the
+        // current one ended - minutes, on a looping zone. Music on/off already
+        // re-attached immediately; this now behaves the same way.
+        applyVolumeNow(player);
         return true;
+    }
+
+    /** Restarts only what this player is hearing, leaving everyone else alone. */
+    private void applyVolumeNow(Player player) {
+        plugin.getPlaybackManager().stopSoundFor(player);
+        plugin.getAmbientZoneManager().stopSoundFor(player);
+
+        boolean resumed = plugin.getAmbientZoneManager().resumeSoundFor(player);
+        resumed |= plugin.getPlaybackManager().resumeSoundFor(player) > 0;
+
+        MessageUtil.sendMessage(player, plugin.getLanguageManager()
+            .getMessage(resumed ? "music-volume-applied" : "music-volume-next-track"));
     }
 
     private boolean handleStatus(Player player) {

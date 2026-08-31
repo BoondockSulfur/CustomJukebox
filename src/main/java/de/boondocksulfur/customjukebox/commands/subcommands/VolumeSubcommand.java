@@ -109,6 +109,18 @@ public class VolumeSubcommand implements SubCommand {
 
         MessageUtil.sendMessage(sender, message);
 
+        // A personal volume replaces the server volume rather than scaling it,
+        // so an admin who set one hears no difference from their own command
+        // and reasonably concludes it is broken.
+        if (sender instanceof org.bukkit.entity.Player player) {
+            float personal = plugin.getPlayerPreferencesManager()
+                .getPersonalVolume(player.getUniqueId());
+            if (personal >= 0) {
+                MessageUtil.sendMessage(sender, plugin.getLanguageManager()
+                    .getMessage("volume-personal-overrides", "value", VolumeUtil.describe(personal)));
+            }
+        }
+
         return true;
     }
 
