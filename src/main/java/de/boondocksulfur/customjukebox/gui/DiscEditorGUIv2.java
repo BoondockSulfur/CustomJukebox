@@ -329,7 +329,9 @@ public class DiscEditorGUIv2 implements Listener {
             case 11: // Author
                 player.closeInventory();
                 MessageUtil.sendMessage(player, "&7Enter new &eAuthor &7in chat:");
-                MessageUtil.sendMessage(player, "&8Supports colors & gradients just like Display Name");
+                // Spelled out rather than pointing at the Display Name prompt:
+                // whoever opens this field first never sees that one.
+                MessageUtil.sendMessage(player, "&8Colors: &7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
                 MessageUtil.sendMessage(player, "&8Type &ccancel &8to abort");
                 chatInputMode.put(player.getUniqueId(), "author:" + disc.getId());
                 break;
