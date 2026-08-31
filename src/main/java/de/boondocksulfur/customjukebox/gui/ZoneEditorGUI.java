@@ -73,7 +73,7 @@ public class ZoneEditorGUI implements Listener {
 
     private Inventory build(AmbientZone zone) {
         Inventory inv = InventoryUtil.createGuiInventory(this, 27,
-            AdventureUtil.fitTitle("§6§lZone: §e", zone.getId()));
+            AdventureUtil.fitTitle("§6§lZone: §e", AdventureUtil.shortId(zone.getId())));
 
         boolean active = plugin.getAmbientZoneManager().isZoneActive(zone.getId());
         // The manager knows exactly what is blocking the zone (empty playlist,

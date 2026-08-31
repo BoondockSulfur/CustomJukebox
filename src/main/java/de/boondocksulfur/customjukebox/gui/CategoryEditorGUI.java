@@ -62,7 +62,7 @@ public class CategoryEditorGUI implements Listener {
      */
     private Inventory createEditorGUI(DiscCategory category) {
         Inventory gui = InventoryUtil.createGuiInventory(this, 27,
-            AdventureUtil.fitTitle("§6§lEdit Category: ", category.getId()));
+            AdventureUtil.fitTitle("§6§lEdit Category: ", AdventureUtil.shortId(category.getId())));
 
         // Display Name editor
         ItemStack displayNameItem = createEditorItem(Material.NAME_TAG,

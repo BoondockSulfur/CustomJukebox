@@ -123,10 +123,46 @@ public class AdventureUtil {
 
     /**
      * Visible characters an inventory title can show before it runs past the
-     * frame. These titles are bold, which is wider than normal text, so the
-     * budget is deliberately conservative.
+     * frame. Measured from a screenshot of an overflowing title: 36 bold
+     * characters spanned 220 of the 160 usable pixels, so about 26 fit.
      */
-    public static final int TITLE_BUDGET = 22;
+    public static final int TITLE_BUDGET = 26;
+
+    /**
+     * The part of an id worth showing.
+     *
+     * <p>A namespace-style prefix distinguishes nothing and eats a third of a
+     * title that has no room to spare. Pass the prefix the server's ids
+     * actually share where it is known; without one this falls back to
+     * dropping everything up to the last dot.
+     *
+     * @param id the full id
+     * @return the id without its prefix
+     */
+    public static String shortId(String id) {
+        return shortId(id, null);
+    }
+
+    /**
+     * @param prefix the prefix the server's ids actually share, or null to fall
+     *               back to stripping whatever namespace-style prefix this one
+     *               id happens to carry
+     */
+    public static String shortId(String id, String prefix) {
+        if (id == null || id.isEmpty()) {
+            return "";
+        }
+        if (prefix != null && !prefix.isEmpty()) {
+            return id.startsWith(prefix) && id.length() > prefix.length()
+                ? id.substring(prefix.length())
+                : id;
+        }
+        if (prefix != null) {
+            return id; // a known-empty shared prefix: nothing to strip
+        }
+        int dot = id.lastIndexOf('.');
+        return dot >= 0 && dot < id.length() - 1 ? id.substring(dot + 1) : id;
+    }
 
     /**
      * Builds an inventory title whose variable part cannot push it past the

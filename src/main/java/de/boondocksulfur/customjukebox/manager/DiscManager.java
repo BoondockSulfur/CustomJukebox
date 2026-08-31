@@ -374,6 +374,43 @@ public class DiscManager {
     }
 
     /**
+     * The namespace prefix every disc id shares, if they all share one.
+     *
+     * <p>Ids commonly carry a prefix like {@code music_disc.} or a pack's own
+     * {@code custom.}, which distinguishes nothing and costs a third of a GUI
+     * title. Rather than assume a particular prefix, this reads what the
+     * server's own discs actually use: the longest leading run ending in a dot
+     * that every id begins with. Servers whose ids share nothing get an empty
+     * result and keep their ids whole.
+     *
+     * @return the shared prefix including its trailing dot, or an empty string
+     */
+    public String getCommonIdPrefix() {
+        String candidate = null;
+        for (CustomDisc disc : getAllDiscs()) {
+            String id = disc.getId();
+            int dot = id.lastIndexOf('.');
+            String prefix = dot >= 0 ? id.substring(0, dot + 1) : "";
+            if (prefix.isEmpty()) {
+                return ""; // one id without a prefix means there is no shared one
+            }
+            if (candidate == null) {
+                candidate = prefix;
+                continue;
+            }
+            // Shrink to what both still share, always ending on a dot
+            while (!candidate.isEmpty() && !prefix.startsWith(candidate)) {
+                int previous = candidate.lastIndexOf('.', candidate.length() - 2);
+                candidate = previous >= 0 ? candidate.substring(0, previous + 1) : "";
+            }
+            if (candidate.isEmpty()) {
+                return "";
+            }
+        }
+        return candidate == null ? "" : candidate;
+    }
+
+    /**
      * Saves current disc configuration to disc.json.
      */
     /**

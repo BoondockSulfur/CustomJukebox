@@ -420,7 +420,9 @@ public class DiscEditorGUIv2 implements Listener {
 
     private Inventory createMainEditor(CustomDisc disc) {
         Inventory gui = InventoryUtil.createGuiInventory(this, 54,
-            AdventureUtil.fitTitle("§6§lEdit: §e", disc.getId()));
+            AdventureUtil.fitTitle("§6§lEdit: §e",
+                AdventureUtil.shortId(disc.getId(),
+                    plugin.getDiscManager().getCommonIdPrefix())));
 
         // Display Name
         ItemStack displayName = createEditorItem(Material.NAME_TAG,
