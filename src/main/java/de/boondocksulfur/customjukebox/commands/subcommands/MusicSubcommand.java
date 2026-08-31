@@ -137,6 +137,12 @@ public class MusicSubcommand implements SubCommand {
         plugin.getPlayerPreferencesManager().setPersonalVolume(player.getUniqueId(), volume);
         MessageUtil.sendMessage(player, plugin.getLanguageManager()
             .getMessage("music-volume-set", "value", VolumeUtil.describe(volume)));
+        if (volume >= VolumeUtil.FULL) {
+            MessageUtil.sendMessage(player, plugin.getLanguageManager()
+                .getMessage("volume-at-full",
+                    java.util.Map.of("value", VolumeUtil.format(volume),
+                        "range", String.format(java.util.Locale.ROOT, "%.0f", volume * 16))));
+        }
 
         // A resource pack sound keeps the volume it started with, so without
         // restarting this player's track the setting did nothing until the

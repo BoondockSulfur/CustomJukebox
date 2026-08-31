@@ -266,3 +266,4 @@ zone-global-set: "&aLa zona &e{zone} &aè ora una stazione radio per tutto il se
 zone-shuffle-set: "&aZona &e{zone} &acasuale: &e{value}"
 music-resumed-from-start: "&8La traccia in corso riparte da capo per te - non si può entrare a metà di un suono già avviato."
 volume-personal-overrides: "&e⚠ Il tuo volume personale ({value}) ha la precedenza per te. &7Usa &e/cjb music volume reset &7per seguire di nuovo il server."
+volume-at-full: "&7Da &e{value}&7 il suono è già al volume massimo - un valore più alto lo rende solo udibile più lontano (circa &e{range}&7 blocchi). Per abbassarlo scendi &esotto 1.0&7."

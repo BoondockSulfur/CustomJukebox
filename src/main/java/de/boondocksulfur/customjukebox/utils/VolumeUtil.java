@@ -20,6 +20,13 @@ public final class VolumeUtil {
     public static final float MAX = 4.0f;
     public static final float INVALID = -1f;
 
+    /**
+     * Full loudness. Above this Minecraft widens the audible radius
+     * ({@code volume * 16} blocks) instead of raising the gain, so 4.0 and 1.0
+     * sound identical standing next to the source.
+     */
+    public static final float FULL = 1.0f;
+
     public static final List<String> PRESETS =
         Arrays.asList("silent", "quiet", "normal", "loud", "max");
 

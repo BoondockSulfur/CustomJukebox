@@ -108,6 +108,7 @@ public class VolumeSubcommand implements SubCommand {
         }
 
         MessageUtil.sendMessage(sender, message);
+        warnIfAtOrAboveFull(sender, volume);
 
         // A personal volume replaces the server volume rather than scaling it,
         // so an admin who set one hears no difference from their own command
@@ -122,6 +123,22 @@ public class VolumeSubcommand implements SubCommand {
         }
 
         return true;
+    }
+
+    /**
+     * Says the thing that costs people an afternoon: at 1.0 the sound is
+     * already at full loudness, and a higher value only makes it audible
+     * further away. Testing 4.0 against 1.0 next to the jukebox therefore
+     * sounds identical, and the command looks broken.
+     */
+    private void warnIfAtOrAboveFull(CommandSender sender, float volume) {
+        if (volume < VolumeUtil.FULL) {
+            return;
+        }
+        MessageUtil.sendMessage(sender, plugin.getLanguageManager()
+            .getMessage("volume-at-full",
+                java.util.Map.of("value", VolumeUtil.format(volume),
+                    "range", String.format(Locale.ROOT, "%.0f", volume * 16))));
     }
 
     @Override
