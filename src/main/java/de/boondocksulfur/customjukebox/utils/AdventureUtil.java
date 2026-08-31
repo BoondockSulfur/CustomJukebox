@@ -122,6 +122,25 @@ public class AdventureUtil {
     }
 
     /**
+     * Visible characters an inventory title can show before it runs past the
+     * frame. These titles are bold, which is wider than normal text, so the
+     * budget is deliberately conservative.
+     */
+    public static final int TITLE_BUDGET = 22;
+
+    /**
+     * Builds an inventory title whose variable part cannot push it past the
+     * frame, counting the fixed prefix against the same budget.
+     *
+     * @param prefix fixed leading text, colour codes included
+     * @param name   the disc, zone, playlist or category name to append
+     */
+    public static String fitTitle(String prefix, String name) {
+        String visiblePrefix = stripColor(prefix);
+        return prefix + fit(name, Math.max(4, TITLE_BUDGET - visiblePrefix.length()));
+    }
+
+    /**
      * Converts a list of legacy strings to Adventure Components.
      *
      * @param lines List of legacy text strings

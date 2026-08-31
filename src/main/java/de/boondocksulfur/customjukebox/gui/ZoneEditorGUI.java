@@ -4,6 +4,7 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.AmbientZone;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
+import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -71,7 +72,8 @@ public class ZoneEditorGUI implements Listener {
     }
 
     private Inventory build(AmbientZone zone) {
-        Inventory inv = InventoryUtil.createGuiInventory(this, 27, "§6§lZone: §e" + zone.getId());
+        Inventory inv = InventoryUtil.createGuiInventory(this, 27,
+            AdventureUtil.fitTitle("§6§lZone: §e", zone.getId()));
 
         boolean active = plugin.getAmbientZoneManager().isZoneActive(zone.getId());
         // The manager knows exactly what is blocking the zone (empty playlist,

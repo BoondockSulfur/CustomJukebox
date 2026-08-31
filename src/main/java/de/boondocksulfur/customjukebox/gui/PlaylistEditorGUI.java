@@ -76,7 +76,7 @@ public class PlaylistEditorGUI implements Listener {
      * Creates the inventory GUI for the playlist editor.
      */
     private Inventory createEditorInventory(DiscPlaylist playlist, int page) {
-        String title = "§6§lEdit: §e" + AdventureUtil.fit(playlist.getDisplayName(), TITLE_NAME_LIMIT);
+        String title = AdventureUtil.fitTitle("§6§lEdit: §e", playlist.getDisplayName());
         Inventory inv = InventoryUtil.createGuiInventory(this, 54, title);
 
         // Get all discs in playlist

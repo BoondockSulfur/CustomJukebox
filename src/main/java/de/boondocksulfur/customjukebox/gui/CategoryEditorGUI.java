@@ -61,7 +61,8 @@ public class CategoryEditorGUI implements Listener {
      * Creates the main editor GUI.
      */
     private Inventory createEditorGUI(DiscCategory category) {
-        Inventory gui = InventoryUtil.createGuiInventory(this, 27, "§6§lEdit Category: " + category.getId());
+        Inventory gui = InventoryUtil.createGuiInventory(this, 27,
+            AdventureUtil.fitTitle("§6§lEdit Category: ", category.getId()));
 
         // Display Name editor
         ItemStack displayNameItem = createEditorItem(Material.NAME_TAG,

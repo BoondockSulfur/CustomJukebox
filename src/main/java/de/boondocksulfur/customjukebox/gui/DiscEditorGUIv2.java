@@ -244,7 +244,7 @@ public class DiscEditorGUIv2 implements Listener {
      */
     private Inventory createDeleteConfirmationGUI(CustomDisc disc) {
         Inventory gui = InventoryUtil.createGuiInventory(this, 27,
-            "§c§lDelete: " + AdventureUtil.fit(disc.getDisplayName(), TITLE_NAME_LIMIT));
+            AdventureUtil.fitTitle("§c§lDelete: ", disc.getDisplayName()));
 
         // Disc preview
         gui.setItem(13, disc.createItemStack());
@@ -419,7 +419,8 @@ public class DiscEditorGUIv2 implements Listener {
     }
 
     private Inventory createMainEditor(CustomDisc disc) {
-        Inventory gui = InventoryUtil.createGuiInventory(this, 54, "§6§lEdit: §e" + disc.getId());
+        Inventory gui = InventoryUtil.createGuiInventory(this, 54,
+            AdventureUtil.fitTitle("§6§lEdit: §e", disc.getId()));
 
         // Display Name
         ItemStack displayName = createEditorItem(Material.NAME_TAG,
