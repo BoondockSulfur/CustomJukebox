@@ -117,12 +117,15 @@ public class ConfigManager {
 
             // Read config.json (explicit UTF-8 - save() writes UTF-8, so reading
             // with the platform default would break on a non-UTF-8 JVM default)
+            JsonObject loaded;
             try (Reader reader = new InputStreamReader(new FileInputStream(configFile), StandardCharsets.UTF_8)) {
-                this.config = gson.fromJson(reader, JsonObject.class);
+                loaded = gson.fromJson(reader, JsonObject.class);
             }
-            if (config == null) {
-                config = new JsonObject();
+            if (loaded == null) {
+                loaded = new JsonObject();
             }
+            this.config = loaded;
+            plugin.getConfigWriter().unblock(configFile);
 
             // Merge in any keys added by newer plugin versions (e.g. new
             // playback options) without overwriting the user's existing values
@@ -159,11 +162,31 @@ public class ConfigManager {
             }
 
         } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to load config.json", e);
-
-            // Create default config
-            this.config = new JsonObject();
+            // Never write the fallback over the file - see ConfigWriter.quarantine
+            plugin.getConfigWriter().quarantine(configFile, e);
+            if (this.config == null) {
+                // First load: run on the shipped defaults
+                this.config = loadBundledDefaults();
+            } else {
+                // Reload: a typo must not throw away the settings that were working
+                plugin.getLogger().severe("Keeping the previously loaded settings.");
+            }
         }
+    }
+
+    private JsonObject loadBundledDefaults() {
+        try (InputStream defaultStream = plugin.getResource("config.json")) {
+            if (defaultStream != null) {
+                JsonObject defaults = gson.fromJson(
+                    new InputStreamReader(defaultStream, StandardCharsets.UTF_8), JsonObject.class);
+                if (defaults != null) {
+                    return defaults;
+                }
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to read bundled default config: " + e.getMessage());
+        }
+        return new JsonObject();
     }
 
     /**
@@ -211,8 +234,10 @@ public class ConfigManager {
             // Copy on the calling thread so later edits cannot change what the
             // writer thread ends up persisting
             snapshot = config.deepCopy();
+            // Queued under the same lock the snapshot was taken under: two
+            // threads saving at once must not let the older snapshot land last
+            plugin.getConfigWriter().save(configFile, snapshot, getMaxBackups(), getBackupMinIntervalMillis());
         }
-        plugin.getConfigWriter().save(configFile, snapshot, getMaxBackups(), getBackupMinIntervalMillis());
     }
 
     /**

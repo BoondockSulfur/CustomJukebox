@@ -16,6 +16,8 @@ import java.util.List;
  *
  * <p>Resolves the source the same way the progress bar does: an ambient zone the
  * player stands in takes precedence over a jukebox they are merely in range of.
+ * At a jukebox only a playlist can be skipped; a single disc has no next track,
+ * and ending it needs {@code customjukebox.stop}.
  *
  * <p>There is no "previous track" counterpart on purpose - it would be identical
  * to skipping forward through the whole playlist, since a resource-pack sound
@@ -73,6 +75,19 @@ public class SkipSubcommand implements SubCommand {
         JukeboxPlayback playback = plugin.getPlaybackManager().getAudiblePlaybackFor(player);
         if (playback == null) {
             MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("skip-nothing-playing"));
+            return true;
+        }
+
+        // Only a playlist has a next track. Ending a single disc is a stop, and
+        // stopping someone else's music is an admin permission - otherwise
+        // everyone could end a server-wide playback just by being in range.
+        if (!plugin.getPlaybackManager().hasPlaylist(playback.getJukeboxLocation())) {
+            if (!player.hasPermission("customjukebox.stop")) {
+                MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("skip-no-playlist"));
+                return true;
+            }
+            plugin.getPlaybackManager().stopPlayback(playback.getJukeboxLocation());
+            report(sender, null);
             return true;
         }
 

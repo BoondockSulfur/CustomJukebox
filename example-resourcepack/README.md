@@ -96,6 +96,26 @@ One block per song:
 `"stream": true` is **required**. Without it Minecraft loads the entire track into
 memory before playing, which stutters and wastes RAM on longer songs.
 
+**Optional — shorter fade distance.** A sound played at a fixed position (a jukebox, or a
+zone with `source point`) fades out over **16 blocks** by default, more at volumes above
+1. `attenuation_distance` changes that per sound, e.g. 10 blocks:
+
+```json
+{
+  "music_disc.my_song": {
+    "sounds": [
+      {
+        "name": "records/my_song",
+        "stream": true,
+        "attenuation_distance": 10
+      }
+    ]
+  }
+}
+```
+
+It applies wherever that sound plays, in a jukebox as well as in a zone.
+
 ## Step 3 — Point a disc at it in `disc.json`
 
 `plugins/CustomJukebox/disc.json` on your server:

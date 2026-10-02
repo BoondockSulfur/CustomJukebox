@@ -61,37 +61,60 @@ public class AmbientZone {
         NEXT_TRACK
     }
 
+    /**
+     * Where a zone's music comes from.
+     */
+    public enum SoundSource {
+        /** At each listener's own position: the same loudness everywhere in the
+         *  zone, stopped when the player leaves. The default. */
+        PLAYER,
+        /** From the zone's center, like a jukebox standing there: quieter with
+         *  distance, and not stopped on leaving - it fades out instead. Only for
+         *  {@link ZoneType#RADIUS} zones, and always played {@link PlaybackMode#SYNCED}. */
+        POINT
+    }
+
     /** Sentinel for {@link #volume}: use the global playback volume. */
     public static final float VOLUME_INHERIT = -1f;
 
     private final String id;
-    private boolean enabled;
-    private String world;
-    private ZoneType type;
+    // Mutable settings are volatile: they are edited from command and GUI
+    // threads while the scanner and track timers read them on other threads
+    // (Folia region threads, the global thread)
+    private volatile boolean enabled;
+    private volatile String world;
+    private volatile ZoneType type;
 
     // RADIUS type
-    private double centerX;
-    private double centerY;
-    private double centerZ;
-    private double radius;
+    private volatile double centerX;
+    private volatile double centerY;
+    private volatile double centerZ;
+    private volatile double radius;
 
     // WORLDGUARD type
-    private String region;
+    private volatile String region;
 
     // CUBOID type (two block corners; inclusive block range)
-    private int x1, y1, z1;
-    private int x2, y2, z2;
-    private boolean pos1Set;
-    private boolean pos2Set;
+    private volatile int x1, y1, z1;
+    private volatile int x2, y2, z2;
+    private volatile boolean pos1Set;
+    private volatile boolean pos2Set;
 
-    private String playlistId;
-    private boolean loop;
-    private float volume;       // VOLUME_INHERIT or 0.0..4.0
-    private SyncMode syncMode;
-    private PlaybackMode playbackMode;
-    private boolean fullHeight;  // ignore the Y axis (cylinder/column) vs. 3D (sphere/box)
-    private int priority;       // higher wins when zones overlap
-    private boolean shuffle;    // play the playlist in random order
+    private volatile String playlistId;
+    private volatile boolean loop;
+    private volatile float volume;       // VOLUME_INHERIT or 0.0..4.0
+    private volatile SyncMode syncMode;
+    private volatile PlaybackMode playbackMode;
+    private volatile boolean fullHeight;  // ignore the Y axis (cylinder/column) vs. 3D (sphere/box)
+    private volatile int priority;       // higher wins when zones overlap
+    private volatile boolean shuffle;    // play the playlist in random order
+    private volatile SoundSource soundSource;
+
+    // Zone jukebox: a placed block the zone plays from (see ZoneJukeboxListener)
+    private volatile boolean jukeboxBound;
+    private volatile boolean jukeboxPlaced;
+    private volatile int jukeboxX, jukeboxY, jukeboxZ;
+    private volatile String jukeboxOwner = "";
 
     public AmbientZone(String id) {
         this.id = id;
@@ -113,6 +136,88 @@ public class AmbientZone {
         this.fullHeight = true;
         this.priority = 0;
         this.shuffle = false;
+        this.soundSource = SoundSource.PLAYER;
+    }
+
+    /**
+     * @return true if this zone plays from a zone jukebox block
+     */
+    public boolean isJukeboxBound() {
+        return jukeboxBound;
+    }
+
+    public void setJukeboxBound(boolean jukeboxBound) {
+        this.jukeboxBound = jukeboxBound;
+        if (!jukeboxBound) {
+            this.jukeboxPlaced = false;
+        }
+    }
+
+    /**
+     * @return true if the zone's jukebox currently stands in the world
+     */
+    public boolean isJukeboxPlaced() {
+        return jukeboxBound && jukeboxPlaced;
+    }
+
+    /**
+     * Records the placed jukebox. The caller also moves the zone's center there.
+     * @param x block x
+     * @param y block y
+     * @param z block z
+     * @param owner UUID of the player who placed it, may be empty
+     */
+    public void placeJukebox(int x, int y, int z, String owner) {
+        this.jukeboxBound = true;
+        this.jukeboxX = x;
+        this.jukeboxY = y;
+        this.jukeboxZ = z;
+        this.jukeboxOwner = owner != null ? owner : "";
+        this.jukeboxPlaced = true;
+    }
+
+    /** Marks the jukebox as picked up; the zone pauses until it is placed again. */
+    public void removeJukebox() {
+        this.jukeboxPlaced = false;
+    }
+
+    public int getJukeboxX() { return jukeboxX; }
+    public int getJukeboxY() { return jukeboxY; }
+    public int getJukeboxZ() { return jukeboxZ; }
+
+    /**
+     * @return UUID string of whoever placed the jukebox, or an empty string
+     */
+    public String getJukeboxOwner() {
+        return jukeboxOwner;
+    }
+
+    /**
+     * Whether the zone's placed jukebox is the block at these coordinates.
+     * @param worldName world of the block
+     * @param x block x
+     * @param y block y
+     * @param z block z
+     * @return true for the zone's own jukebox block
+     */
+    public boolean isJukeboxAt(String worldName, int x, int y, int z) {
+        return isJukeboxPlaced() && world.equals(worldName)
+            && jukeboxX == x && jukeboxY == y && jukeboxZ == z;
+    }
+
+    public SoundSource getSoundSource() {
+        return soundSource;
+    }
+
+    public void setSoundSource(SoundSource soundSource) {
+        this.soundSource = soundSource != null ? soundSource : SoundSource.PLAYER;
+    }
+
+    /**
+     * @return true if the music comes from the zone's center, see {@link SoundSource#POINT}
+     */
+    public boolean isPointSource() {
+        return soundSource == SoundSource.POINT;
     }
 
     public String getId() {
@@ -360,8 +465,11 @@ public class AmbientZone {
      * @return true if the zone can be activated
      */
     public boolean isRunnable() {
-        if (!enabled || playlistId == null || playlistId.isEmpty()) {
+        if (!enabled || playlistId == null || playlistId.isEmpty() || !isSoundSourceValid()) {
             return false;
+        }
+        if (jukeboxBound && !jukeboxPlaced) {
+            return false; // Picked up - paused until placed again
         }
         switch (type) {
             case GLOBAL:
@@ -374,5 +482,14 @@ public class AmbientZone {
             default:
                 return radius > 0;
         }
+    }
+
+    /**
+     * Whether the zone can use its sound source setting: a point source needs a
+     * center, which only radius zones have.
+     * @return false for a point source on a zone that is not a radius zone
+     */
+    public boolean isSoundSourceValid() {
+        return soundSource != SoundSource.POINT || type == ZoneType.RADIUS;
     }
 }

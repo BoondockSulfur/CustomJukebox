@@ -101,7 +101,8 @@ public class NowPlayingManager {
     }
 
     private void update(Player player) {
-        if (!player.isOnline()) {
+        // On Folia this runs as a queued player task and may land after stop()
+        if (!running || !player.isOnline()) {
             return;
         }
         UUID uuid = player.getUniqueId();
@@ -131,6 +132,12 @@ public class NowPlayingManager {
             bars.put(uuid, bar);
             lastRendered.put(uuid, text);
             player.showBossBar(bar);
+            // stop() clears running before it hides the bars. If it ran between
+            // the check above and the put, its sweep missed this bar - so the
+            // bar is taken down again here instead of staying until relog.
+            if (!running) {
+                hide(player);
+            }
             return;
         }
 

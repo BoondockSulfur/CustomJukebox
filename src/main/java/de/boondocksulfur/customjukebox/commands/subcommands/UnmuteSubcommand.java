@@ -79,6 +79,9 @@ public class UnmuteSubcommand implements SubCommand {
         // Restart active playbacks if requested
         if (restart) {
             plugin.getPlaybackManager().restartAllPlaybacks();
+            // Every zone was silenced by the mute and stays silent until its
+            // next track unless it is restarted too
+            plugin.getAmbientZoneManager().restartAllZones();
         }
 
         // Send success message

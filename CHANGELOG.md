@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.7.0] - 2026-10-02
+
+### Added
+- **Point-source zones** (`/cjb zone source <zone> point`): music plays from the zone center, fades with distance and is not cut off when leaving. Optional; zones default to the previous behaviour.
+- **Zone jukebox** (`/cjb zone jukebox <zone>`): a placeable jukebox the zone plays from, with note particles; break it to move the zone.
+- Update notice for operators with clickable Modrinth and CurseForge links.
+
+### Fixed
+- Fragment crafting no longer duplicates discs.
+- Unreadable `disc.json`, `zones.json`, `config.json`, `players.json` or language files are kept and no longer overwritten.
+- `/cjb skip` only skips playlists and zones; ending a single disc needs `customjukebox.stop`. Favourites need `customjukebox.playlist` for wider ranges.
+- Trail ruins now actually drop fragments when brushed.
+- Various fixes to shutdown, world unloading, Folia thread safety, GUI chat input and input validation.
+
+---
+
 ## [3.6.0] - 2026-08-31
 
 ### Added

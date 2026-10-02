@@ -1,6 +1,7 @@
 package de.boondocksulfur.customjukebox.integrations;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
+import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
@@ -96,7 +97,9 @@ public class PlaceholderAPIExpansion extends PlaceholderExpansion {
         CustomDisc disc = plugin.getDiscManager().getDiscFromItem(handItem);
 
         if (params.equalsIgnoreCase("hand_disc_name")) {
-            return disc != null ? disc.getDisplayName() : "None";
+            // Normalised to plain legacy codes: a name entered with <gradient> or
+            // &#RRGGBB would otherwise reach scoreboards and TAB as raw markup
+            return disc != null ? AdventureUtil.toLegacy(AdventureUtil.parseComponent(disc.getDisplayName())) : "None";
         }
 
         if (params.equalsIgnoreCase("hand_disc_id")) {
@@ -104,7 +107,7 @@ public class PlaceholderAPIExpansion extends PlaceholderExpansion {
         }
 
         if (params.equalsIgnoreCase("hand_disc_author")) {
-            return disc != null ? disc.getAuthor() : "Unknown";
+            return disc != null ? AdventureUtil.toLegacy(AdventureUtil.parseComponent(disc.getAuthor())) : "Unknown";
         }
 
         if (params.equalsIgnoreCase("hand_disc_duration")) {

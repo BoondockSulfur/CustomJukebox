@@ -15,6 +15,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class JukeboxPlayback {
 
     private final Location jukeboxLocation;
+    // Resolved once: Location.getWorld() throws after the world is unloaded,
+    // and a playback must still be removable by its key then
+    private final String locationKey;
+    private final String worldName;
     private final CustomDisc disc;
     private final long startTime;           // System.currentTimeMillis() when playback started
     private final Set<UUID> listeners;      // Players currently hearing this disc
@@ -34,6 +38,8 @@ public class JukeboxPlayback {
     public JukeboxPlayback(Location jukeboxLocation, CustomDisc disc, boolean loop, PlaybackRange range) {
         // Clone once on construction to ensure immutability
         this.jukeboxLocation = jukeboxLocation.clone();
+        this.locationKey = getLocationKey(jukeboxLocation);
+        this.worldName = jukeboxLocation.getWorld().getName();
         this.disc = disc;
         this.startTime = System.currentTimeMillis();
         this.listeners = ConcurrentHashMap.newKeySet();
@@ -158,7 +164,17 @@ public class JukeboxPlayback {
      * @return Location key (world:x:y:z)
      */
     public String getLocationKey() {
-        return getLocationKey(jukeboxLocation);
+        return locationKey;
+    }
+
+    /**
+     * Name of the world this playback runs in. Safe to call after that world
+     * was unloaded, unlike {@code getJukeboxLocation().getWorld()}.
+     *
+     * @return the world name
+     */
+    public String getWorldName() {
+        return worldName;
     }
 
     /**

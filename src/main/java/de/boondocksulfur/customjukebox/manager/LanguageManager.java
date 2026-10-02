@@ -1,6 +1,7 @@
 package de.boondocksulfur.customjukebox.manager;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
+import de.boondocksulfur.customjukebox.utils.BackupUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -29,7 +30,8 @@ public class LanguageManager {
     private final CustomJukebox plugin;
     // Concurrent map + volatile fields: reloaded from a region thread on Folia
     // while other threads resolve messages
-    private final Map<String, FileConfiguration> languages;
+    // Replaced as a whole on reload, see reload()
+    private volatile Map<String, FileConfiguration> languages;
     private volatile String currentLanguage;
     private volatile FileConfiguration currentConfig;
 
@@ -53,10 +55,14 @@ public class LanguageManager {
             langFolder.mkdirs();
         }
 
-        // Load each supported language
+        // Load each supported language into a fresh map and swap it in at once:
+        // clearing the live map first left a window in which a message resolved
+        // on another thread found no language at all, not even the English fallback
+        Map<String, FileConfiguration> loaded = new ConcurrentHashMap<>();
         for (String lang : SUPPORTED_LANGUAGES) {
-            loadLanguage(lang);
+            loadLanguage(lang, loaded);
         }
+        this.languages = loaded;
 
         // Set current language from config
         String configLang = plugin.getConfigManager().getLanguage();
@@ -67,7 +73,7 @@ public class LanguageManager {
      * Loads a specific language file.
      * @param langCode Language code (en, de, es, it)
      */
-    private void loadLanguage(String langCode) {
+    private void loadLanguage(String langCode, Map<String, FileConfiguration> target) {
         File langFile = new File(plugin.getDataFolder(), "languages/" + langCode + ".yml");
 
         // Save default if doesn't exist
@@ -75,8 +81,23 @@ public class LanguageManager {
             plugin.saveResource("languages/" + langCode + ".yml", false);
         }
 
-        // Load file
-        FileConfiguration config = YamlConfiguration.loadConfiguration(langFile);
+        // Load file. Not YamlConfiguration.loadConfiguration: that swallows a
+        // syntax error and returns an empty config, which the merge below would
+        // then fill with the defaults and save - replacing every translation
+        // the admin had made with the stock texts.
+        FileConfiguration config = new YamlConfiguration();
+        try {
+            config.load(langFile);
+        } catch (Exception e) {
+            File copy = BackupUtil.preserveUnreadable(plugin, langFile);
+            plugin.getLogger().log(java.util.logging.Level.SEVERE, "Failed to read languages/" + langCode + ".yml"
+                + (copy != null ? " (copy kept as " + copy.getName() + ")" : "")
+                + " - using the " + (languages != null && languages.containsKey(langCode) ? "previously loaded"
+                : "built-in") + " texts until it is fixed and reloaded with /cjb reload", e);
+            FileConfiguration fallback = languages != null ? languages.get(langCode) : null;
+            target.put(langCode, fallback != null ? fallback : loadBundled(langCode));
+            return;
+        }
 
         // Load defaults from jar
         InputStream defaultStream = plugin.getResource("languages/" + langCode + ".yml");
@@ -87,9 +108,17 @@ public class LanguageManager {
             mergeNewMessages(config, defaultConfig, langFile, langCode);
         }
 
-        languages.put(langCode, config);
+        target.put(langCode, config);
 
         plugin.getLogger().info("Loaded language: " + langCode);
+    }
+
+    private FileConfiguration loadBundled(String langCode) {
+        InputStream stream = plugin.getResource("languages/" + langCode + ".yml");
+        if (stream == null) {
+            return new YamlConfiguration();
+        }
+        return YamlConfiguration.loadConfiguration(new InputStreamReader(stream, StandardCharsets.UTF_8));
     }
 
     /**
@@ -250,7 +279,6 @@ public class LanguageManager {
      * Reloads all language files.
      */
     public void reload() {
-        languages.clear();
         loadLanguages();
     }
 

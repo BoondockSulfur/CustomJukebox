@@ -1,6 +1,7 @@
 package de.boondocksulfur.customjukebox.gui;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
+import de.boondocksulfur.customjukebox.utils.ChatInputSessions;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.InputValidator;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
@@ -31,6 +32,8 @@ public class DiscCreationWizard implements Listener {
      * Starts the disc creation wizard.
      */
     public void startWizard(Player player) {
+        // Only one chat prompt at a time
+        plugin.cancelChatInput(player.getUniqueId());
         CreationSession session = new CreationSession();
         activeSessions.put(player.getUniqueId(), session);
 
@@ -53,6 +56,11 @@ public class DiscCreationWizard implements Listener {
         CreationSession session = activeSessions.get(player.getUniqueId());
 
         if (session == null) return;
+        if (session.expired()) {
+            // Abandoned long ago - this line is ordinary chat, not an answer
+            activeSessions.remove(player.getUniqueId(), session);
+            return;
+        }
 
         event.setCancelled(true);
         String input = AdventureUtil.toLegacy(event.message());
@@ -69,6 +77,7 @@ public class DiscCreationWizard implements Listener {
         if (!session.claim()) {
             return;
         }
+        session.lastActivity = System.currentTimeMillis();
 
         // Process step
         SchedulerUtil.runPlayerTask(plugin, player, () -> {
@@ -223,8 +232,9 @@ public class DiscCreationWizard implements Listener {
     private void handleDuration(Player player, CreationSession session, String input) {
         try {
             int seconds = Integer.parseInt(input);
-            if (seconds <= 0) {
-                MessageUtil.sendMessage(player, "&cDuration must be greater than 0!");
+            if (seconds <= 0 || seconds > InputValidator.MAX_DURATION_SECONDS) {
+                MessageUtil.sendMessage(player, "&cDuration must be between 1 and "
+                    + InputValidator.MAX_DURATION_SECONDS + " seconds!");
                 MessageUtil.sendMessage(player, "&7Please enter a valid number:");
                 return;
             }
@@ -262,7 +272,15 @@ public class DiscCreationWizard implements Listener {
             session.category = null;
             MessageUtil.sendMessage(player, "&a✓ Category: &8None");
         } else {
-            String categoryId = input.toLowerCase();
+            String categoryId = input.toLowerCase().replace(" ", "_");
+            // Same rule as everywhere else a category ID is made - an ID the GUI
+            // cannot create could never be assigned or edited later
+            if (!InputValidator.isValidCategoryId(categoryId)) {
+                MessageUtil.sendMessage(player, "&cInvalid category ID! Use letters, numbers, - and _ (max "
+                    + InputValidator.MAX_CATEGORY_ID_LENGTH + " characters)");
+                MessageUtil.sendMessage(player, "&7Please try again, or type &enone&7:");
+                return;
+            }
             if (plugin.getDiscManager().getCategory(categoryId) == null) {
                 MessageUtil.sendMessage(player, "&cCategory '" + input + "' does not exist!");
                 MessageUtil.sendMessage(player, "&7The disc will be created with this category anyway.");
@@ -355,6 +373,14 @@ public class DiscCreationWizard implements Listener {
         activeSessions.remove(player.getUniqueId());
     }
 
+    /**
+     * Drops a running wizard, e.g. because another chat prompt starts.
+     * @param playerId player
+     */
+    public void cancelChatInput(UUID playerId) {
+        activeSessions.remove(playerId);
+    }
+
     private static class CreationSession {
         int currentStep = 0;
         String discId;
@@ -367,6 +393,13 @@ public class DiscCreationWizard implements Listener {
 
         /** Guards against two chat messages advancing the same session at once. */
         private final AtomicBoolean processing = new AtomicBoolean(false);
+
+        /** Last time the player answered a step, for the inactivity timeout. */
+        volatile long lastActivity = System.currentTimeMillis();
+
+        boolean expired() {
+            return System.currentTimeMillis() - lastActivity > ChatInputSessions.TIMEOUT_MILLIS;
+        }
 
         boolean claim() {
             return processing.compareAndSet(false, true);

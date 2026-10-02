@@ -3,6 +3,7 @@ package de.boondocksulfur.customjukebox.model;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.ItemUtil;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -69,8 +70,8 @@ public class DiscFragment {
 
             // Convert lore to Adventure Components
             List<Component> loreComponents = new ArrayList<>();
-            loreComponents.add(AdventureUtil.parseComponent("§7Fragment for crafting"));
-            loreComponents.add(AdventureUtil.parseComponent("§8ID: " + discId));
+            loreComponents.add(AdventureUtil.parseComponent("&7Fragment for crafting"));
+            loreComponents.add(AdventureUtil.parseComponent("&8ID: " + discId));
             meta.lore(loreComponents);
 
             CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
@@ -143,11 +144,12 @@ public class DiscFragment {
             return null;
         }
 
-        // Convert components to legacy string for parsing
+        // Compare the plain text: the legacy serializer writes '&' codes, so a
+        // match against the "§8ID: " the old items were created with never hit
         for (Component component : loreComponents) {
-            String line = AdventureUtil.toLegacy(component);
-            if (line.startsWith("§8ID: ")) {
-                return line.substring(6);
+            String line = PlainTextComponentSerializer.plainText().serialize(component).trim();
+            if (line.startsWith("ID: ") && line.length() > 4) {
+                return line.substring(4).trim();
             }
         }
 

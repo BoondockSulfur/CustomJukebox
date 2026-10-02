@@ -2,6 +2,8 @@ package de.boondocksulfur.customjukebox.gui;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
+import de.boondocksulfur.customjukebox.utils.ChatInputSessions;
+import de.boondocksulfur.customjukebox.utils.InputValidator;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
 import de.boondocksulfur.customjukebox.utils.InventoryUtil;
@@ -36,7 +38,11 @@ public class CategoryEditorGUI implements Listener {
 
     private final CustomJukebox plugin;
     private final Map<UUID, EditorContext> activeEditors = new ConcurrentHashMap<>();
-    private final Map<UUID, EditMode> chatInputMode = new ConcurrentHashMap<>();
+    /** Remembers the category with the prompt - not the editor last opened. */
+    private record PendingEdit(EditMode mode, String categoryId) {
+    }
+
+    private final ChatInputSessions<PendingEdit> chatInputMode = new ChatInputSessions<>();
 
     public CategoryEditorGUI(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -46,6 +52,8 @@ public class CategoryEditorGUI implements Listener {
      * Opens the category editor for a specific category.
      */
     public void openEditor(Player player, String categoryId) {
+        // A menu opened afresh means any earlier chat prompt was abandoned
+        plugin.cancelChatInput(player.getUniqueId());
         DiscCategory category = plugin.getDiscManager().getCategory(categoryId);
         if (category == null) {
             MessageUtil.sendMessage(player, "&cCategory not found: " + categoryId);
@@ -121,7 +129,9 @@ public class CategoryEditorGUI implements Listener {
             event.setCancelled(true);
         } else {
             // Cancel actions that move items from the player inventory into the GUI
-            if (event.isShiftClick()) {
+            // Double-click collect would pull matching items out of the GUI
+            if (event.isShiftClick()
+                    || event.getAction() == org.bukkit.event.inventory.InventoryAction.COLLECT_TO_CURSOR) {
                 event.setCancelled(true);
             }
             return; // Don't handle clicks in player's own inventory
@@ -148,7 +158,8 @@ public class CategoryEditorGUI implements Listener {
         switch (slot) {
             case 11: // Edit Display Name
                 // Set the input mode before closing so the close handler keeps the session
-                chatInputMode.put(player.getUniqueId(), EditMode.DISPLAY_NAME);
+                plugin.cancelChatInput(player.getUniqueId());
+                chatInputMode.start(player.getUniqueId(), new PendingEdit(EditMode.DISPLAY_NAME, context.categoryId));
                 player.closeInventory();
                 MessageUtil.sendMessage(player, "");
                 MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
@@ -163,7 +174,8 @@ public class CategoryEditorGUI implements Listener {
 
             case 13: // Edit Description
                 // Set the input mode before closing so the close handler keeps the session
-                chatInputMode.put(player.getUniqueId(), EditMode.DESCRIPTION);
+                plugin.cancelChatInput(player.getUniqueId());
+                chatInputMode.start(player.getUniqueId(), new PendingEdit(EditMode.DESCRIPTION, context.categoryId));
                 player.closeInventory();
                 MessageUtil.sendMessage(player, "");
                 MessageUtil.sendMessage(player, "&6&l╔════════════════════════════════════╗");
@@ -200,7 +212,7 @@ public class CategoryEditorGUI implements Listener {
         // (closing caused by opening the next inventory, or during chat input)
         if (!GUIHolder.isOwnedBy(event.getInventory(), this)) return;
         if (event.getReason() == InventoryCloseEvent.Reason.OPEN_NEW) return;
-        if (chatInputMode.containsKey(player.getUniqueId())) return;
+        if (chatInputMode.isActive(player.getUniqueId())) return;
 
         activeEditors.remove(player.getUniqueId());
     }
@@ -216,10 +228,10 @@ public class CategoryEditorGUI implements Listener {
 
         Player player = event.getPlayer();
         // Remove atomically so rapid consecutive messages are not processed twice
-        EditMode mode = chatInputMode.remove(player.getUniqueId());
-        EditorContext context = activeEditors.get(player.getUniqueId());
-
-        if (mode == null || context == null) return;
+        PendingEdit pending = chatInputMode.take(player.getUniqueId());
+        if (pending == null) return;
+        EditMode mode = pending.mode();
+        EditorContext context = new EditorContext(pending.categoryId());
 
         event.setCancelled(true);
         String input = AdventureUtil.toLegacy(event.message());
@@ -260,6 +272,12 @@ public class CategoryEditorGUI implements Listener {
 
         switch (mode) {
             case DISPLAY_NAME:
+                // Same limits as the creation wizard
+                if (!InputValidator.isValidLength(input, InputValidator.MAX_CATEGORY_NAME_LENGTH)) {
+                    MessageUtil.sendMessage(player, InputValidator.getLengthErrorMessage("Display Name",
+                        InputValidator.MAX_CATEGORY_NAME_LENGTH));
+                    break;
+                }
                 newDisplayName = AdventureUtil.toLegacy(AdventureUtil.parseComponent(input));
                 success = plugin.getDiscManager().updateCategory(context.categoryId, newDisplayName, newDescription);
                 if (success) {
@@ -268,6 +286,11 @@ public class CategoryEditorGUI implements Listener {
                 break;
 
             case DESCRIPTION:
+                if (!InputValidator.isValidLength(input, InputValidator.MAX_DESCRIPTION_LENGTH)) {
+                    MessageUtil.sendMessage(player, InputValidator.getLengthErrorMessage("Description",
+                        InputValidator.MAX_DESCRIPTION_LENGTH));
+                    break;
+                }
                 newDescription = input.equalsIgnoreCase("none") ? "" : AdventureUtil.toLegacy(AdventureUtil.parseComponent(input));
                 success = plugin.getDiscManager().updateCategory(context.categoryId, newDisplayName, newDescription);
                 if (success) {
@@ -311,9 +334,17 @@ public class CategoryEditorGUI implements Listener {
     /**
      * Cancels an active editor session.
      */
+    /**
+     * Drops a pending chat prompt of this GUI.
+     * @param playerId player
+     */
+    public void cancelChatInput(UUID playerId) {
+        chatInputMode.cancel(playerId);
+    }
+
     public void cancelSession(UUID playerId) {
         activeEditors.remove(playerId);
-        chatInputMode.remove(playerId);
+        chatInputMode.cancel(playerId);
     }
 
     /**

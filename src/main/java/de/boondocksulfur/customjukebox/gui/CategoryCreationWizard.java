@@ -1,6 +1,7 @@
 package de.boondocksulfur.customjukebox.gui;
 
 import de.boondocksulfur.customjukebox.CustomJukebox;
+import de.boondocksulfur.customjukebox.utils.ChatInputSessions;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
@@ -35,6 +36,8 @@ public class CategoryCreationWizard implements Listener {
      * Starts the category creation wizard.
      */
     public void startWizard(Player player) {
+        // Only one chat prompt at a time
+        plugin.cancelChatInput(player.getUniqueId());
         CreationSession session = new CreationSession();
         activeSessions.put(player.getUniqueId(), session);
 
@@ -57,6 +60,11 @@ public class CategoryCreationWizard implements Listener {
         CreationSession session = activeSessions.get(player.getUniqueId());
 
         if (session == null) return;
+        if (session.expired()) {
+            // Abandoned long ago - this line is ordinary chat, not an answer
+            activeSessions.remove(player.getUniqueId(), session);
+            return;
+        }
 
         event.setCancelled(true);
         String input = AdventureUtil.toLegacy(event.message());
@@ -71,6 +79,7 @@ public class CategoryCreationWizard implements Listener {
         if (!session.claim()) {
             return;
         }
+        session.lastActivity = System.currentTimeMillis();
 
         // Handle confirmation step (step 3)
         if (session.currentStep == 3) {
@@ -255,6 +264,13 @@ public class CategoryCreationWizard implements Listener {
          * two lines could otherwise have both processed against the same step.
          */
         private final AtomicBoolean processing = new AtomicBoolean(false);
+
+        /** Last time the player answered a step, for the inactivity timeout. */
+        volatile long lastActivity = System.currentTimeMillis();
+
+        boolean expired() {
+            return System.currentTimeMillis() - lastActivity > ChatInputSessions.TIMEOUT_MILLIS;
+        }
 
         boolean claim() {
             return processing.compareAndSet(false, true);

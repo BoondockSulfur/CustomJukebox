@@ -43,7 +43,11 @@ public class PlayerPreferencesManager {
     private final CustomJukebox plugin;
     private final Gson gson;
     private final File preferencesFile;
-    private final Map<UUID, PlayerPreferences> preferences = new ConcurrentHashMap<>();
+    // Replaced as a whole on reload instead of cleared and refilled, so no
+    // thread ever sees every player reset to defaults in between
+    private volatile Map<UUID, PlayerPreferences> preferences = new ConcurrentHashMap<>();
+    /** Serialises snapshot + queueing, see {@link #save()}. */
+    private final Object saveLock = new Object();
 
     public PlayerPreferencesManager(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -55,7 +59,7 @@ public class PlayerPreferencesManager {
     // ==================== PERSISTENCE ====================
 
     private void load() {
-        preferences.clear();
+        Map<UUID, PlayerPreferences> loaded = new ConcurrentHashMap<>();
         try {
             if (plugin.getConfigWriter() != null) {
                 plugin.getConfigWriter().flush();
@@ -64,7 +68,9 @@ public class PlayerPreferencesManager {
                 plugin.getDataFolder().mkdirs();
             }
             if (!preferencesFile.exists()) {
-                return; // Nothing saved yet - every player is on defaults
+                preferences = loaded; // Nothing saved yet - every player is on defaults
+                plugin.getConfigWriter().unblock(preferencesFile);
+                return;
             }
             if (preferencesFile.length() > MAX_FILE_SIZE) {
                 throw new IOException("players.json exceeds " + (MAX_FILE_SIZE / 1024 / 1024) + " MB");
@@ -74,11 +80,8 @@ public class PlayerPreferencesManager {
             try (Reader reader = new InputStreamReader(new FileInputStream(preferencesFile), StandardCharsets.UTF_8)) {
                 root = gson.fromJson(reader, JsonObject.class);
             }
-            if (root == null || !root.has("players") || !root.get("players").isJsonObject()) {
-                return;
-            }
-
-            JsonObject players = root.getAsJsonObject("players");
+            JsonObject players = root != null && root.has("players") && root.get("players").isJsonObject()
+                ? root.getAsJsonObject("players") : new JsonObject();
             for (Map.Entry<String, JsonElement> entry : players.entrySet()) {
                 if (!entry.getValue().isJsonObject()) {
                     continue;
@@ -90,13 +93,17 @@ public class PlayerPreferencesManager {
                     plugin.getLogger().warning("Skipping players.json entry with invalid UUID: " + entry.getKey());
                     continue;
                 }
-                preferences.put(uuid, parse(entry.getValue().getAsJsonObject()));
+                loaded.put(uuid, parse(entry.getValue().getAsJsonObject()));
             }
-            if (!preferences.isEmpty()) {
-                plugin.getLogger().info("Loaded music settings for " + preferences.size() + " player(s)");
+            preferences = loaded;
+            plugin.getConfigWriter().unblock(preferencesFile);
+            if (!loaded.isEmpty()) {
+                plugin.getLogger().info("Loaded music settings for " + loaded.size() + " player(s)");
             }
         } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to load players.json - using defaults", e);
+            // The in-memory settings are only a fallback now; the next change
+            // would otherwise overwrite every other player's saved settings
+            plugin.getConfigWriter().quarantine(preferencesFile, e);
         }
     }
 
@@ -126,6 +133,14 @@ public class PlayerPreferencesManager {
      * config writer coalesces repeated saves into a single file write.
      */
     public void save() {
+        // Snapshot and queue in one step: two threads saving at once (Folia)
+        // must not let the older snapshot reach the writer last
+        synchronized (saveLock) {
+            saveLocked();
+        }
+    }
+
+    private void saveLocked() {
         JsonObject root = new JsonObject();
         root.addProperty("version", PREFERENCES_VERSION);
 

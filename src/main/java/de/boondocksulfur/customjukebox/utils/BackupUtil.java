@@ -76,6 +76,32 @@ public final class BackupUtil {
     }
 
     /**
+     * Keeps a copy of a file that could not be read.
+     *
+     * <p>Unlike {@link #createBackup} this is never throttled and never pruned:
+     * a file that fails to parse usually holds hand-made edits that are worth
+     * more than any automatic backup, and the admin needs it to repair them.
+     *
+     * @param plugin plugin (for logging)
+     * @param file the unreadable file
+     * @return the copy, or null if there was nothing to copy or copying failed
+     */
+    public static File preserveUnreadable(Plugin plugin, File file) {
+        if (file == null || !file.exists()) {
+            return null;
+        }
+        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        File copy = new File(file.getParentFile(), file.getName() + ".unreadable-" + timestamp);
+        try {
+            Files.copy(file.toPath(), copy.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            return copy;
+        } catch (IOException e) {
+            plugin.getLogger().warning("Could not keep a copy of unreadable " + file.getName() + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Returns the most recent backup of a file, or null if there is none.
      *
      * @param file original file

@@ -4,6 +4,7 @@ import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
 import de.boondocksulfur.customjukebox.model.DiscPlaylist;
+import de.boondocksulfur.customjukebox.utils.ChatInputSessions;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
 import de.boondocksulfur.customjukebox.utils.GuiPageUtil;
@@ -53,7 +54,7 @@ public class AdminGUI implements Listener {
 
     private final CustomJukebox plugin;
     private final Map<UUID, GUIContext> activeGUIs = new ConcurrentHashMap<>();
-    private final Map<UUID, String> chatInputMode = new ConcurrentHashMap<>();
+    private final ChatInputSessions<String> chatInputMode = new ChatInputSessions<>();
     private final Map<UUID, PendingDelete> pendingDeletes = new ConcurrentHashMap<>();
 
     public AdminGUI(CustomJukebox plugin) {
@@ -64,6 +65,8 @@ public class AdminGUI implements Listener {
      * Opens the main admin menu.
      */
     public void openMainMenu(Player player) {
+        // A menu opened afresh means any earlier chat prompt was abandoned
+        plugin.cancelChatInput(player.getUniqueId());
         Inventory gui = InventoryUtil.createGuiInventory(this, 27, "§6§lAdmin §8» §eMain Menu");
 
         // Disc Management
@@ -355,7 +358,8 @@ public class AdminGUI implements Listener {
             MessageUtil.sendMessage(player, "&7Enter new &ePlaylist ID &7in chat:");
             MessageUtil.sendMessage(player, "&8Example: epic_music");
             MessageUtil.sendMessage(player, "&8Type &ccancel &8to abort");
-            chatInputMode.put(player.getUniqueId(), "createPlaylist");
+            plugin.cancelChatInput(player.getUniqueId());
+            chatInputMode.start(player.getUniqueId(), "createPlaylist");
             return;
         }
 
@@ -447,8 +451,16 @@ public class AdminGUI implements Listener {
 
     public void cleanup(Player player) {
         activeGUIs.remove(player.getUniqueId());
-        chatInputMode.remove(player.getUniqueId());
+        chatInputMode.cancel(player.getUniqueId());
         pendingDeletes.remove(player.getUniqueId());
+    }
+
+    /**
+     * Drops a pending chat prompt of this GUI.
+     * @param playerId player
+     */
+    public void cancelChatInput(UUID playerId) {
+        chatInputMode.cancel(playerId);
     }
 
     @EventHandler(priority = org.bukkit.event.EventPriority.LOWEST)
@@ -457,7 +469,7 @@ public class AdminGUI implements Listener {
 
         Player player = event.getPlayer();
         // Remove atomically so rapid consecutive messages are not processed twice
-        String mode = chatInputMode.remove(player.getUniqueId());
+        String mode = chatInputMode.take(player.getUniqueId());
 
         if (mode == null) return;
 

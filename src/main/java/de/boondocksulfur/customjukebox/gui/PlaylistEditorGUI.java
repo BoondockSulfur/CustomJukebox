@@ -176,7 +176,9 @@ public class PlaylistEditorGUI implements Listener {
             event.setCancelled(true);
         } else {
             // Cancel actions that move items from the player inventory into the GUI
-            if (event.isShiftClick()) {
+            // Double-click collect would pull matching items out of the GUI
+            if (event.isShiftClick()
+                    || event.getAction() == org.bukkit.event.inventory.InventoryAction.COLLECT_TO_CURSOR) {
                 event.setCancelled(true);
             }
             return; // Don't handle clicks in player's own inventory

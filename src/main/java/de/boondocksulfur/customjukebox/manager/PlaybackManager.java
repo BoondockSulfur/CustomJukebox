@@ -12,8 +12,10 @@ import de.boondocksulfur.customjukebox.model.NowPlaying;
 import de.boondocksulfur.customjukebox.model.PlaybackRange;
 import de.boondocksulfur.customjukebox.model.RepeatMode;
 import de.boondocksulfur.customjukebox.utils.SchedulerUtil;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.SoundCategory;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 
 import java.util.*;
@@ -27,8 +29,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * - Auto-stopping sounds after duration
  * - Stopping sounds when jukeboxes are broken/ejected
  *
- * Thread Safety: Uses ConcurrentHashMap for all internal maps to ensure thread-safe operations.
- * All playback operations should be performed on the main server thread.
+ * Thread Safety: Uses ConcurrentHashMap for all internal maps. Every operation
+ * that changes playback state (start, stop, skip, track end, restart) runs
+ * under one lock: on Folia a command, the track-end timer and a block event can
+ * reach the same jukebox from different threads, and without the lock a stop
+ * and a start could interleave into two playbacks, one of them never stopped.
+ * Reads stay lock-free.
  */
 public class PlaybackManager {
 
@@ -38,6 +44,9 @@ public class PlaybackManager {
 
     // Playlist queue management
     private final Map<String, PlaylistQueue> playlistQueues;     // Location key -> Queue (thread-safe)
+
+    /** Serialises every state change, see the class comment. */
+    private final Object lock = new Object();
 
     // Sound configuration
     private static final SoundCategory SOUND_CATEGORY = SoundCategory.RECORDS;
@@ -52,6 +61,7 @@ public class PlaybackManager {
      * All methods are synchronized to prevent race conditions when accessed from multiple threads.
      */
     private static class PlaylistQueue {
+        private final String playlistId;
         private final List<CustomDisc> discs;
         private int currentIndex;
         private final RepeatMode repeatMode;
@@ -59,7 +69,9 @@ public class PlaybackManager {
         private final PlaybackRange range;
         private final Random random = new Random();
 
-        PlaylistQueue(List<CustomDisc> discs, RepeatMode repeatMode, boolean shuffle, PlaybackRange range) {
+        PlaylistQueue(String playlistId, List<CustomDisc> discs, RepeatMode repeatMode, boolean shuffle,
+                      PlaybackRange range) {
+            this.playlistId = playlistId;
             this.discs = new ArrayList<>(discs);
             this.repeatMode = repeatMode != null ? repeatMode : RepeatMode.OFF;
             this.shuffle = shuffle;
@@ -104,17 +116,6 @@ public class PlaybackManager {
                 }
             }
             return discs.get(currentIndex);
-        }
-
-        synchronized CustomDisc peekNext() {
-            if (!hasNext()) return null;
-            if (repeatMode == RepeatMode.ONE) return discs.get(currentIndex);
-
-            int nextIndex = currentIndex + 1;
-            if (nextIndex >= discs.size()) {
-                return repeatMode == RepeatMode.ALL ? discs.get(0) : null;
-            }
-            return discs.get(nextIndex);
         }
 
         synchronized int getSize() {
@@ -169,56 +170,63 @@ public class PlaybackManager {
             plugin.getLogger().warning("Cannot start playback: disc is null");
             return;
         }
+        PlaybackRange effectiveRange = range != null ? range : new PlaybackRange(PlaybackRange.RangeType.NORMAL);
 
-        String locationKey = JukeboxPlayback.getLocationKey(location);
+        synchronized (lock) {
+            String locationKey = JukeboxPlayback.getLocationKey(location);
 
-        // Stop any existing playback at this location first
-        stopPlayback(location);
+            // Stop any existing playback at this location first. Only a playback
+            // that is still running ends its playlist: between two tracks of a
+            // playlist nothing runs here, and the queue must survive the start.
+            if (activePlaybacks.containsKey(locationKey)) {
+                stopPlaybackByKey(locationKey, true, true, DiscPlaybackStopEvent.StopReason.MANUAL);
+            }
 
-        // Determine eligible listeners before creating playback
-        Set<Player> eligiblePlayers = new HashSet<>();
-        if (disc.hasCustomSound()) {
-            for (Player player : plugin.getServer().getOnlinePlayers()) {
-                if (shouldPlayerHearPlayback(player, location, range)) {
-                    eligiblePlayers.add(player);
+            // Determine eligible listeners before creating playback
+            Set<Player> eligiblePlayers = new HashSet<>();
+            if (disc.hasCustomSound()) {
+                for (Player player : plugin.getServer().getOnlinePlayers()) {
+                    if (shouldPlayerHearPlayback(player, location, effectiveRange)) {
+                        eligiblePlayers.add(player);
+                    }
                 }
             }
-        }
 
-        // Fire event — companion plugins can cancel or modify listener set
-        DiscPlaybackStartEvent event = new DiscPlaybackStartEvent(disc, location, eligiblePlayers, loop, range);
-        plugin.getServer().getPluginManager().callEvent(event);
-        if (event.isCancelled()) {
-            return;
-        }
+            // Fire event — companion plugins can cancel or modify listener set
+            DiscPlaybackStartEvent event = new DiscPlaybackStartEvent(disc, location, eligiblePlayers, loop, effectiveRange);
+            plugin.getServer().getPluginManager().callEvent(event);
+            if (event.isCancelled()) {
+                return;
+            }
 
-        // Create new playback session with loop flag and range
-        JukeboxPlayback playback = new JukeboxPlayback(location, disc, loop, range);
-        activePlaybacks.put(locationKey, playback);
+            // Create new playback session with loop flag and range
+            JukeboxPlayback playback = new JukeboxPlayback(location, disc, loop, effectiveRange);
+            activePlaybacks.put(locationKey, playback);
 
-        // Play sound to eligible players (may have been modified by event listeners)
-        playSoundToPlayers(playback, event.getListeners());
+            // Play sound to eligible players (may have been modified by event listeners)
+            playSoundToPlayers(playback, event.getListeners());
 
-        // Schedule auto-stop or loop if disc has a duration
-        if (disc.getDurationTicks() > 0) {
-            if (loop) {
-                scheduleLoop(location, playback, disc.getDurationTicks());
+            // Schedule auto-stop or loop if disc has a duration
+            if (disc.getDurationTicks() > 0) {
+                if (loop) {
+                    scheduleLoop(location, playback, disc.getDurationTicks());
+                } else {
+                    scheduleAutoStop(location, playback, disc.getDurationTicks());
+                }
             } else {
-                scheduleAutoStop(location, playback, disc.getDurationTicks());
+                if (loop) {
+                    plugin.getLogger().warning("Disc '" + disc.getId() + "' has no duration - loop is ignored");
+                }
+                // No duration: the tracking entry would otherwise live forever
+                // (e.g. /cjb play at a player position has no eject to stop it)
+                scheduleTrackingCleanup(location, playback);
             }
-        } else {
-            if (loop) {
-                plugin.getLogger().warning("Disc '" + disc.getId() + "' has no duration - loop is ignored");
-            }
-            // No duration: the tracking entry would otherwise live forever
-            // (e.g. /cjb play at a player position has no eject to stop it)
-            scheduleTrackingCleanup(location, playback);
-        }
 
-        if (plugin.getConfigManager().isDebug()) {
-            plugin.getLogger().info("Started playback: " + disc.getDisplayName() +
-                " at " + locationKey + " (duration: " + disc.getDurationSeconds() + "s, loop: " + loop +
-                ", range: " + range.toString() + ")");
+            if (plugin.getConfigManager().isDebug()) {
+                plugin.getLogger().info("Started playback: " + disc.getDisplayName() +
+                    " at " + locationKey + " (duration: " + disc.getDurationSeconds() + "s, loop: " + loop +
+                    ", range: " + effectiveRange + ")");
+            }
         }
     }
 
@@ -227,65 +235,109 @@ public class PlaybackManager {
      * @param location Jukebox location
      */
     public void stopPlayback(Location location) {
-        stopPlayback(location, true);
+        stopPlayback(location, DiscPlaybackStopEvent.StopReason.MANUAL);
     }
 
     /**
-     * Stops playback at a jukebox location.
+     * Stops playback at a jukebox location, reporting why.
      * @param location Jukebox location
-     * @param clearPlaylistQueue Whether to clear the playlist queue (false when auto-progressing)
+     * @param reason reason passed on in {@link DiscPlaybackStopEvent}
      */
-    private void stopPlayback(Location location, boolean clearPlaylistQueue) {
-        // Input validation
+    public void stopPlayback(Location location, DiscPlaybackStopEvent.StopReason reason) {
         if (location == null) {
             plugin.getLogger().warning("Cannot stop playback: location is null");
             return;
         }
+        stopPlaybackByKey(JukeboxPlayback.getLocationKey(location), true, true, reason);
+    }
 
-        String locationKey = JukeboxPlayback.getLocationKey(location);
+    /**
+     * Stops the playback stored under a location key.
+     *
+     * <p>Works by key rather than by {@link Location}, so a playback in a world
+     * that has since been unloaded can still be stopped.
+     *
+     * @param locationKey key of the playback
+     * @param clearPlaylistQueue whether to drop the playlist queue too (false while progressing)
+     * @param resumeZones whether the listeners go back to their ambient zone
+     * @param reason reason passed on in {@link DiscPlaybackStopEvent}
+     */
+    private void stopPlaybackByKey(String locationKey, boolean clearPlaylistQueue, boolean resumeZones,
+                                   DiscPlaybackStopEvent.StopReason reason) {
+        synchronized (lock) {
+            JukeboxPlayback playback = activePlaybacks.get(locationKey);
+            if (playback == null) {
+                return; // No active playback at this location
+            }
 
-        JukeboxPlayback playback = activePlaybacks.get(locationKey);
-        if (playback == null) {
-            return; // No active playback at this location
-        }
+            // Cancel auto-stop task
+            SchedulerUtil.TaskHandle task = autoStopTasks.remove(locationKey);
+            SchedulerUtil.cancelTask(task);
 
-        // Cancel auto-stop task
-        SchedulerUtil.TaskHandle task = autoStopTasks.remove(locationKey);
-        SchedulerUtil.cancelTask(task);
+            // Stop sound for all listeners
+            stopSoundForListeners(playback);
 
-        // Stop sound for all listeners
-        stopSoundForListeners(playback);
+            // Fire stop event for companion plugins
+            plugin.getServer().getPluginManager().callEvent(
+                new DiscPlaybackStopEvent(playback.getDisc(), playback.getJukeboxLocation(), reason));
 
-        // Fire stop event for companion plugins
-        DiscPlaybackStopEvent.StopReason stopReason = clearPlaylistQueue
-            ? DiscPlaybackStopEvent.StopReason.MANUAL
-            : DiscPlaybackStopEvent.StopReason.DURATION_END;
-        plugin.getServer().getPluginManager().callEvent(
-            new DiscPlaybackStopEvent(playback.getDisc(), location, stopReason));
+            // Mark as stopped and remove
+            playback.setStopped(true);
+            activePlaybacks.remove(locationKey);
 
-        // Mark as stopped and remove
-        playback.setStopped(true);
-        activePlaybacks.remove(locationKey);
+            // ... and hand the listeners back to whatever zone they are standing
+            // in. Only once the playback is off the map, or the zone would still
+            // see the disc as audible and stay silent. Not between the tracks of a
+            // playlist though - the next one starts immediately, and the zone would
+            // blip in for a moment in between.
+            if (resumeZones && plugin.getConfigManager().pauseZonesDuringDisc()) {
+                resumeZonesFor(playback);
+            }
 
-        // ... and hand the listeners back to whatever zone they are standing
-        // in. Only once the playback is off the map, or the zone would still
-        // see the disc as audible and stay silent. Not between the tracks of a
-        // playlist though - the next one starts immediately, and the zone would
-        // blip in for a moment in between.
-        if (clearPlaylistQueue && plugin.getConfigManager().pauseZonesDuringDisc()) {
-            resumeZonesFor(playback);
-        }
+            // Remove playlist queue if requested (don't remove when progressing to next track)
+            if (clearPlaylistQueue) {
+                playlistQueues.remove(locationKey);
+                if (plugin.getConfigManager().isDebug()) {
+                    plugin.getLogger().info("Cleared playlist queue at " + locationKey);
+                }
+            }
 
-        // Remove playlist queue if requested (don't remove when progressing to next track)
-        if (clearPlaylistQueue) {
-            playlistQueues.remove(locationKey);
             if (plugin.getConfigManager().isDebug()) {
-                plugin.getLogger().info("Cleared playlist queue at " + locationKey);
+                plugin.getLogger().info("Stopped playback at " + locationKey);
             }
         }
+    }
 
-        if (plugin.getConfigManager().isDebug()) {
-            plugin.getLogger().info("Stopped playback at " + locationKey);
+    /**
+     * Drops every playback in a world that is being unloaded.
+     *
+     * <p>Nobody is left in that world to hear anything, so no stop packets are
+     * needed - but the entries must go: once the world object is gone, every
+     * later {@code getWorld()} on their locations throws, which would break
+     * track timers, {@code /cjb skip} and the zone checks for everyone.
+     *
+     * @param world the world being unloaded
+     */
+    public void handleWorldUnload(World world) {
+        if (world == null) {
+            return;
+        }
+        String worldName = world.getName();
+        synchronized (lock) {
+            for (JukeboxPlayback playback : new ArrayList<>(activePlaybacks.values())) {
+                if (!worldName.equals(playback.getWorldName())) {
+                    continue;
+                }
+                String key = playback.getLocationKey();
+                SchedulerUtil.cancelTask(autoStopTasks.remove(key));
+                playback.setStopped(true);
+                activePlaybacks.remove(key);
+                playlistQueues.remove(key);
+                plugin.getServer().getPluginManager().callEvent(new DiscPlaybackStopEvent(
+                    playback.getDisc(), playback.getJukeboxLocation(), DiscPlaybackStopEvent.StopReason.PLUGIN));
+            }
+            // Queues whose playback was already gone
+            playlistQueues.keySet().removeIf(key -> key.startsWith(worldName + ":"));
         }
     }
 
@@ -309,6 +361,28 @@ public class PlaybackManager {
      */
     public boolean isPlaying(Location location) {
         return getPlayback(location) != null;
+    }
+
+    /**
+     * ID of the playlist running at a location.
+     * @param location Jukebox location
+     * @return the playlist ID, or null if no playlist runs there
+     */
+    public String getPlaylistIdAt(Location location) {
+        if (location == null) {
+            return null;
+        }
+        PlaylistQueue queue = playlistQueues.get(JukeboxPlayback.getLocationKey(location));
+        return queue == null ? null : queue.playlistId;
+    }
+
+    /**
+     * Whether a playlist is running at a location.
+     * @param location Jukebox location
+     * @return true if a playlist queue exists there
+     */
+    public boolean hasPlaylist(Location location) {
+        return location != null && playlistQueues.containsKey(JukeboxPlayback.getLocationKey(location));
     }
 
     /**
@@ -443,12 +517,12 @@ public class PlaybackManager {
      * Stops all active playbacks (used on plugin disable).
      */
     public void stopAllPlaybacks() {
-        // Copy keys to avoid ConcurrentModificationException
-        for (String locationKey : new HashMap<>(activePlaybacks).keySet()) {
-            JukeboxPlayback playback = activePlaybacks.get(locationKey);
-            if (playback != null) {
-                stopPlayback(playback.getJukeboxLocation());
+        synchronized (lock) {
+            // Copy keys to avoid ConcurrentModificationException
+            for (String locationKey : new ArrayList<>(activePlaybacks.keySet())) {
+                stopPlaybackByKey(locationKey, true, true, DiscPlaybackStopEvent.StopReason.PLUGIN);
             }
+            playlistQueues.clear();
         }
 
         plugin.getLogger().info("Stopped all active playbacks");
@@ -459,25 +533,27 @@ public class PlaybackManager {
      * Useful for applying volume changes to running songs.
      */
     public void restartAllPlaybacks() {
-        // Copy current playbacks to avoid ConcurrentModificationException
-        Map<String, JukeboxPlayback> currentPlaybacks = new HashMap<>(activePlaybacks);
+        int restarted = 0;
+        synchronized (lock) {
+            for (JukeboxPlayback playback : new ArrayList<>(activePlaybacks.values())) {
+                Location location = playback.getJukeboxLocation();
+                if (!location.isWorldLoaded()) {
+                    continue;
+                }
 
-        for (JukeboxPlayback playback : currentPlaybacks.values()) {
-            Location location = playback.getJukeboxLocation();
-            CustomDisc disc = playback.getDisc();
-            boolean loop = playback.isLoop();
-            PlaybackRange range = playback.getRange();
+                // Stop current playback but keep the playlist queue - a running
+                // playlist must survive e.g. /cjb mute + unmute or volume restarts
+                stopPlaybackByKey(playback.getLocationKey(), false, false,
+                    DiscPlaybackStopEvent.StopReason.PLUGIN);
 
-            // Stop current playback but keep the playlist queue - a running
-            // playlist must survive e.g. /cjb mute + unmute or volume restarts
-            stopPlayback(location, false);
-
-            // Restart with same settings
-            startPlayback(location, disc, loop, range);
+                // Restart with same settings
+                startPlayback(location, playback.getDisc(), playback.isLoop(), playback.getRange());
+                restarted++;
+            }
         }
 
         if (plugin.getConfigManager().isDebug()) {
-            plugin.getLogger().info("Restarted " + currentPlaybacks.size() + " active playback(s)");
+            plugin.getLogger().info("Restarted " + restarted + " active playback(s)");
         }
     }
 
@@ -499,32 +575,32 @@ public class PlaybackManager {
 
         for (Player player : players) {
             if (player.isOnline() && plugin.getPlayerPreferencesManager().isMusicEnabled(player.getUniqueId())) {
-                playSound(player, location, disc);
+                // Listener first: a stop that lands before the delivery below
+                // must already see this player
                 playback.addListener(player);
+                onPlayerThread(player, () -> {
+                    if (!playback.isStopped() && playback.hasListener(player)) {
+                        playSound(player, location, disc);
+                    }
+                });
             }
         }
     }
 
     /**
-     * Plays the disc sound to players based on the playback range.
-     * @param playback JukeboxPlayback session
+     * Runs per-player work on the thread that owns that player.
+     *
+     * <p>A jukebox with a global, world or large radius range reaches players in
+     * other Folia regions. Stopping their zone music and firing the delivery
+     * events for them has to happen on their own thread, where companion
+     * plugins may safely touch the player. On Paper, and for players in the
+     * jukebox's own region, this runs immediately.
      */
-    private void playSoundToPlayers(JukeboxPlayback playback) {
-        CustomDisc disc = playback.getDisc();
-        if (!disc.hasCustomSound()) {
-            // No custom sound defined, let vanilla handle it
-            return;
-        }
-
-        Location location = playback.getJukeboxLocation();
-        PlaybackRange range = playback.getRange();
-
-        // Determine which players should hear the sound based on range
-        for (Player player : plugin.getServer().getOnlinePlayers()) {
-            if (shouldPlayerHearPlayback(player, location, range)) {
-                playSound(player, location, disc);
-                playback.addListener(player);
-            }
+    private void onPlayerThread(Player player, Runnable task) {
+        if (!SchedulerUtil.isFolia() || Bukkit.isOwnedByCurrentRegion(player)) {
+            task.run();
+        } else {
+            SchedulerUtil.runPlayerTask(plugin, player, task);
         }
     }
 
@@ -557,6 +633,11 @@ public class PlaybackManager {
      * @return true if the player is within range
      */
     private boolean isInPlaybackRange(Player player, Location location, PlaybackRange range) {
+        // A playback left over in an unloaded world is audible to nobody -
+        // getWorld() would throw below
+        if (!location.isWorldLoaded()) {
+            return false;
+        }
         switch (range.getType()) {
             case GLOBAL:
                 // All players on the server
@@ -592,6 +673,10 @@ public class PlaybackManager {
      * @param playback the playback that stopped
      */
     private void resumeZonesFor(JukeboxPlayback playback) {
+        // On disable the zones are already stopped; nothing to hand back to
+        if (!plugin.isEnabled()) {
+            return;
+        }
         for (UUID listenerId : playback.getListeners()) {
             Player listener = plugin.getServer().getPlayer(listenerId);
             if (listener == null || !listener.isOnline()) {
@@ -691,7 +776,7 @@ public class PlaybackManager {
         for (UUID listenerId : playback.getListeners()) {
             Player player = plugin.getServer().getPlayer(listenerId);
             if (player != null && player.isOnline()) {
-                stopSound(player, disc);
+                onPlayerThread(player, () -> stopSound(player, disc));
             }
         }
     }
@@ -744,29 +829,24 @@ public class PlaybackManager {
                     " after " + durationTicks + " ticks");
             }
 
-            JukeboxPlayback playback = activePlaybacks.get(locationKey);
-            if (playback != null && playback == expectedPlayback && !playback.isStopped()) {
-                if (plugin.getConfigManager().isDebug()) {
-                    plugin.getLogger().info("[AutoStop] Playback active, stopping: " +
-                        playback.getDisc().getId());
+            synchronized (lock) {
+                JukeboxPlayback playback = activePlaybacks.get(locationKey);
+                if (playback == null || playback != expectedPlayback || playback.isStopped()) {
+                    if (plugin.getConfigManager().isDebug()) {
+                        plugin.getLogger().info("[AutoStop] No matching playback found at " + locationKey);
+                    }
+                    return;
                 }
 
-                // Stop playback BUT keep playlist queue for progression
-                // (false = don't clear playlist queue)
-                stopPlayback(location, false);
-
-                // Check if this is part of a playlist and play next disc
-                if (plugin.getConfigManager().isDebug()) {
-                    plugin.getLogger().info("[AutoStop] Checking for playlist progression...");
+                // Stop playback BUT keep playlist queue for progression; the
+                // zones get their listeners back only if nothing follows
+                stopPlaybackByKey(locationKey, false, false, DiscPlaybackStopEvent.StopReason.DURATION_END);
+                if (!handlePlaylistProgression(location)) {
+                    resumeZonesIfEnabled(playback);
                 }
-                handlePlaylistProgression(location);
 
                 if (plugin.getConfigManager().isDebug()) {
                     plugin.getLogger().info("[AutoStop] Completed for " + locationKey);
-                }
-            } else {
-                if (plugin.getConfigManager().isDebug()) {
-                    plugin.getLogger().info("[AutoStop] No matching playback found at " + locationKey);
                 }
             }
         }, durationTicks);
@@ -793,12 +873,17 @@ public class PlaybackManager {
         String locationKey = JukeboxPlayback.getLocationKey(location);
 
         SchedulerUtil.TaskHandle task = SchedulerUtil.runLater(plugin, location, () -> {
-            if (activePlaybacks.get(locationKey) == expectedPlayback) {
-                expectedPlayback.setStopped(true);
-                activePlaybacks.remove(locationKey);
-                autoStopTasks.remove(locationKey);
-                if (plugin.getConfigManager().isDebug()) {
-                    plugin.getLogger().info("[Cleanup] Removed stale no-duration playback entry at " + locationKey);
+            synchronized (lock) {
+                if (activePlaybacks.get(locationKey) == expectedPlayback) {
+                    expectedPlayback.setStopped(true);
+                    activePlaybacks.remove(locationKey);
+                    autoStopTasks.remove(locationKey);
+                    // A playlist cannot advance past a track without a duration,
+                    // so its queue would otherwise outlive the playback
+                    playlistQueues.remove(locationKey);
+                    if (plugin.getConfigManager().isDebug()) {
+                        plugin.getLogger().info("[Cleanup] Removed stale no-duration playback entry at " + locationKey);
+                    }
                 }
             }
         }, NO_DURATION_CLEANUP_TICKS);
@@ -819,27 +904,20 @@ public class PlaybackManager {
         String locationKey = JukeboxPlayback.getLocationKey(location);
 
         SchedulerUtil.TaskHandle task = SchedulerUtil.runLater(plugin, location, () -> {
-            JukeboxPlayback playback = getPlayback(location);
-            // Identity check: a stale loop task must never restart a newer playback
-            if (playback != null && playback == expectedPlayback && !playback.isStopped() && playback.isLoop()) {
-                // Save settings before stopping
-                CustomDisc disc = playback.getDisc();
-                PlaybackRange range = playback.getRange();
+            synchronized (lock) {
+                JukeboxPlayback playback = activePlaybacks.get(locationKey);
+                // Identity check: a stale loop task must never restart a newer playback
+                if (playback == null || playback != expectedPlayback || playback.isStopped() || !playback.isLoop()) {
+                    return;
+                }
 
-                // Cancel the old task FIRST (before removing playback)
-                SchedulerUtil.TaskHandle oldTask = autoStopTasks.remove(locationKey);
-                SchedulerUtil.cancelTask(oldTask);
-
-                // Stop sound for current listeners
-                stopSoundForListeners(playback);
-
-                // Mark as stopped and remove playback
-                playback.setStopped(true);
-                activePlaybacks.remove(locationKey);
+                // One lap is over: report it like any other track end, so start
+                // and stop events stay paired for companion plugins
+                stopPlaybackByKey(locationKey, false, false, DiscPlaybackStopEvent.StopReason.DURATION_END);
 
                 // Start new playback with loop and range enabled
                 // This will create a fresh playback session and new loop task
-                startPlayback(location, disc, true, range);
+                startPlayback(location, playback.getDisc(), true, playback.getRange());
 
                 if (plugin.getConfigManager().isDebug()) {
                     plugin.getLogger().info("Looping playback at " + locationKey);
@@ -898,51 +976,66 @@ public class PlaybackManager {
             plugin.getLogger().warning("Cannot start playlist '" + playlist.getId() + "': No valid discs found");
             return;
         }
+        PlaybackRange effectiveRange = range != null ? range : new PlaybackRange(PlaybackRange.RangeType.NORMAL);
 
-        String locationKey = getLocationKey(location);
+        synchronized (lock) {
+            String locationKey = getLocationKey(location);
 
-        // Stop any existing playback
-        stopPlayback(location);
+            // Stop any existing playback
+            stopPlayback(location);
 
-        // Create playlist queue with range
-        PlaylistQueue queue = new PlaylistQueue(discs, repeatMode, shuffle, range);
-        playlistQueues.put(locationKey, queue);
+            // Create playlist queue with range
+            PlaylistQueue queue = new PlaylistQueue(playlist.getId(), discs, repeatMode, shuffle, effectiveRange);
+            playlistQueues.put(locationKey, queue);
 
-        // Start playing first disc
-        CustomDisc firstDisc = queue.getCurrentDisc();
-        if (firstDisc != null) {
-            startPlayback(location, firstDisc, false, range);
+            // Start playing first disc
+            CustomDisc firstDisc = queue.getCurrentDisc();
+            if (firstDisc != null) {
+                startPlayback(location, firstDisc, false, effectiveRange);
+            }
+            if (!activePlaybacks.containsKey(locationKey)) {
+                // A companion plugin cancelled the start - an orphaned queue
+                // would later take over whatever disc is played here next
+                playlistQueues.remove(locationKey);
+                return;
+            }
 
             plugin.getLogger().info("Started playlist '" + playlist.getId() + "' at " + locationKey +
                 " (" + queue.getSize() + " discs, repeat: " + repeatMode.display()
-                + ", shuffle: " + shuffle + ", range: " + range.toString() + ")");
+                + ", shuffle: " + shuffle + ", range: " + effectiveRange + ")");
         }
     }
 
     /**
      * Skips to the next track of the playlist running at a location.
      *
-     * <p>Without a playlist there is nothing to advance to, so a single disc is
-     * simply stopped - the sound engine cannot seek, only start and stop.
+     * <p>Only a playlist has a next track. A single disc is left alone - ending
+     * it is a stop, which is a separate permission (see {@code /cjb skip}).
      *
      * @param location playback location
-     * @return the disc now playing, or null if playback just stopped
+     * @return the disc now playing, or null if nothing follows (playback stopped)
+     *         or no playlist runs there
      */
     public CustomDisc skipToNext(Location location) {
-        if (location == null || !isPlaying(location)) {
+        if (location == null) {
             return null;
         }
-        String locationKey = getLocationKey(location);
-        PlaylistQueue queue = playlistQueues.get(locationKey);
+        synchronized (lock) {
+            String locationKey = getLocationKey(location);
+            JukeboxPlayback current = activePlaybacks.get(locationKey);
+            if (current == null || !playlistQueues.containsKey(locationKey)) {
+                return null;
+            }
 
-        // Keep the queue when stopping so progression can continue
-        stopPlayback(location, queue == null);
-        if (queue == null) {
-            return null;
+            // Keep the queue when stopping so progression can continue
+            stopPlaybackByKey(locationKey, false, false, DiscPlaybackStopEvent.StopReason.MANUAL);
+            if (!handlePlaylistProgression(location)) {
+                resumeZonesIfEnabled(current);
+                return null;
+            }
+            JukeboxPlayback playback = activePlaybacks.get(locationKey);
+            return playback == null ? null : playback.getDisc();
         }
-        handlePlaylistProgression(location);
-        JukeboxPlayback playback = activePlaybacks.get(locationKey);
-        return playback == null ? null : playback.getDisc();
     }
 
     /**
@@ -994,52 +1087,54 @@ public class PlaybackManager {
      * Handles playlist queue progression.
      * Called when a disc finishes playing.
      * @param location Location where disc finished
+     * @return true if a next track started
      */
-    private void handlePlaylistProgression(Location location) {
-        String locationKey = getLocationKey(location);
+    private boolean handlePlaylistProgression(Location location) {
+        synchronized (lock) {
+            String locationKey = getLocationKey(location);
 
-        if (plugin.getConfigManager().isDebug()) {
-            plugin.getLogger().info("[Playlist] Checking progression at " + locationKey);
-            plugin.getLogger().info("[Playlist] Active queues: " + playlistQueues.size());
-            plugin.getLogger().info("[Playlist] Queue keys: " + playlistQueues.keySet());
-        }
-
-        // Synchronize access to prevent race conditions
-        PlaylistQueue queue = playlistQueues.get(locationKey);
-
-        if (queue == null) {
-            if (plugin.getConfigManager().isDebug()) {
-                plugin.getLogger().info("[Playlist] No queue found - not a playlist playback");
-            }
-            return; // No playlist active
-        }
-
-        if (plugin.getConfigManager().isDebug()) {
-            plugin.getLogger().info("[Playlist] Progressing at " + locationKey);
-        }
-
-        // Peek at next disc without advancing the index yet
-        if (queue.hasNext()) {
-            CustomDisc nextDisc = queue.peekNext();
-            if (nextDisc != null) {
-                // Only advance the index after successful peek
-                queue.next(); // Now safe to advance
-                // Play next disc in queue using the queue's stored range
+            PlaylistQueue queue = playlistQueues.get(locationKey);
+            if (queue == null) {
                 if (plugin.getConfigManager().isDebug()) {
-                    plugin.getLogger().info("[Playlist] Playing next: " + nextDisc.getId() +
-                        " (" + (queue.getCurrentIndex() + 1) + "/" + queue.getSize() + ")");
+                    plugin.getLogger().info("[Playlist] No queue found at " + locationKey + " - not a playlist playback");
                 }
+                return false; // No playlist active
+            }
 
-                startPlayback(location, nextDisc, false, queue.range);
-            } else {
-                plugin.getLogger().warning("[Playlist] Next disc is null at " + locationKey);
+            // next() is what the queue now points at - with shuffle and repeat it
+            // reshuffles on the wrap, so a peek beforehand can name another disc
+            CustomDisc nextDisc = queue.next();
+            if (nextDisc == null) {
+                // Playlist finished
+                playlistQueues.remove(locationKey);
+                if (plugin.getConfigManager().isDebug()) {
+                    plugin.getLogger().info("[Playlist] Finished at " + locationKey);
+                }
+                return false;
             }
-        } else {
-            // Playlist finished
-            playlistQueues.remove(locationKey);
+
             if (plugin.getConfigManager().isDebug()) {
-                plugin.getLogger().info("[Playlist] Finished at " + locationKey);
+                plugin.getLogger().info("[Playlist] Playing next: " + nextDisc.getId() +
+                    " (" + (queue.getCurrentIndex() + 1) + "/" + queue.getSize() + ")");
             }
+            startPlayback(location, nextDisc, false, queue.range);
+
+            if (!activePlaybacks.containsKey(locationKey)) {
+                // Start cancelled by a companion plugin: the playlist ends here
+                playlistQueues.remove(locationKey);
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Hands the listeners of an ended playback back to their ambient zones, if
+     * discs pause zones at all.
+     */
+    private void resumeZonesIfEnabled(JukeboxPlayback playback) {
+        if (plugin.getConfigManager().pauseZonesDuringDisc()) {
+            resumeZonesFor(playback);
         }
     }
 

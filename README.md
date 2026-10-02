@@ -426,6 +426,37 @@ By default a zone covers the **full height** (any Y): a radius zone is a vertica
 /cjb zone playback eventstage synced  # event: everyone in sync
 ```
 
+### Sound source: player vs point (optional)
+
+`/cjb zone source <id> <player|point>` chooses where the music comes from:
+
+- **`player`** (default): the music plays at each listener's own position — the same loudness everywhere inside the zone, and it stops when the player leaves. Existing zones keep this behaviour.
+- **`point`**: the music plays from the **zone center, like a jukebox standing there**. It gets quieter with distance and is **not cut off when you leave** — it fades out instead. The playlist keeps running whether anyone is there or not.
+
+A point source needs a center, so it only works for **radius zones**, and it is always played `synced` (everyone hears the same jukebox). Point zones overlap like jukeboxes do: they don't take part in the priority rule, and a point zone plays alongside an ordinary zone the player is in.
+
+The zone **radius** decides who receives a track when it starts; the **fade distance** comes from the volume, as with any Minecraft sound: about **16 blocks up to volume 1**, and **16 × volume** above that. For a shorter fade (e.g. 10 blocks), set `attenuation_distance` for the sound in your resource pack's `sounds.json` (see the pack guide in `example-resourcepack/`).
+
+```bash
+/cjb zone create campfire             # at the spot the music should come from
+/cjb zone radius campfire 16
+/cjb zone playlist campfire campfire-songs
+/cjb zone source campfire point
+```
+
+### Zone jukebox (optional)
+
+Instead of setting the center by command, a zone can play from a **jukebox block**:
+
+```bash
+/cjb zone jukebox campfire            # gives you the zone's jukebox (creates the zone if needed)
+```
+
+- **Placing** it turns the zone into a point-source radius zone centered on the block — the music comes out of that jukebox and fades with distance. Note particles show while it plays.
+- **Right-click** (with `customjukebox.zone`) opens the zone editor; for everyone else it just says which zone it plays. Discs can't be put into it.
+- **Breaking** it drops the bound jukebox again and **pauses the zone** until it is placed somewhere else — that's how you move it. Only whoever placed it or someone with `customjukebox.zone` can break it, and region protection (WorldGuard etc.) applies as for any block. Explosions leave it standing.
+- There is **one jukebox per zone**. If one disappeared without being broken (e.g. removed with WorldEdit), `/cjb zone jukebox <id> release` frees the zone for a new one; `/cjb zone jukebox <id> unbind` turns it back into an ordinary zone.
+
 ### Commands
 
 All under permission `customjukebox.zone` (default: op).
@@ -449,6 +480,8 @@ All under permission `customjukebox.zone` (default: op).
 /cjb zone loop <id> <true|false>      # Loop the whole playlist (default true)
 /cjb zone playback <id> <synced|individual>  # Shared timeline vs per-player full songs
 /cjb zone sync <id> <immediate|next_track>   # (synced only) how late arrivals join
+/cjb zone source <id> <player|point>  # player = follows the listener (default); point = from the center, fades with distance
+/cjb zone jukebox <id> [release|unbind]  # Get the zone's jukebox block to place as its sound source
 /cjb zone volume <id> <inherit|0-4>   # Volume = audible radius (inherit = global)
 /cjb zone priority <id> <number>      # Overlapping zones: highest priority wins
 /cjb zone enable|disable <id>         # Turn a zone on/off
@@ -493,6 +526,8 @@ Minecraft's sound engine **cannot seek**, so a player who walks in while a track
 - **`next_track`**: the new arrival stays silent until the **next track starts**, then joins perfectly in sync with everyone.
 
 Either way, **everyone re-syncs at every track boundary**, so drift never accumulates.
+
+With `source point`, a player who was in range when a track started keeps hearing it while walking away and back — it is only started for players who don't already hear it.
 
 ### How it works
 

@@ -22,15 +22,15 @@ import java.util.stream.Collectors;
  * everyone inside them.
  *
  * Usage: /cjb zone &lt;list|info|create|delete|playlist|radius|center|pos1|pos2|
- *                     region|global|height|loop|shuffle|sync|playback|volume|
- *                     priority|enable|disable|edit|reload&gt; [args...]
+ *                     region|global|height|loop|shuffle|sync|playback|source|jukebox|
+ *                     volume|priority|enable|disable|edit|reload&gt; [args...]
  */
 public class ZoneSubcommand implements SubCommand {
 
     private static final List<String> ACTIONS = Arrays.asList(
         "list", "info", "create", "delete", "playlist", "radius", "center",
         "pos1", "pos2", "region", "global", "height", "loop", "shuffle", "sync",
-        "playback", "volume", "priority", "enable", "disable", "edit", "reload");
+        "playback", "source", "jukebox", "volume", "priority", "enable", "disable", "edit", "reload");
 
     private final CustomJukebox plugin;
 
@@ -50,7 +50,7 @@ public class ZoneSubcommand implements SubCommand {
 
     @Override
     public String getUsage() {
-        return "/cjb zone <list|info|create|delete|playlist|radius|center|pos1|pos2|region|global|height|loop|shuffle|sync|playback|volume|priority|enable|disable|edit|reload> [args...]";
+        return "/cjb zone <list|info|create|delete|playlist|radius|center|pos1|pos2|region|global|height|loop|shuffle|sync|playback|source|jukebox|volume|priority|enable|disable|edit|reload> [args...]";
     }
 
     @Override
@@ -83,6 +83,8 @@ public class ZoneSubcommand implements SubCommand {
             case "loop":     return handleLoop(sender, args);
             case "sync":     return handleSync(sender, args);
             case "playback": return handlePlayback(sender, args);
+            case "source":   return handleSource(sender, args);
+            case "jukebox":  return handleJukebox(sender, args);
             case "volume":   return handleVolume(sender, args);
             case "priority": return handlePriority(sender, args);
             case "enable":   return handleToggle(sender, args, true);
@@ -141,6 +143,8 @@ public class ZoneSubcommand implements SubCommand {
             + "  &7Sync: &f" + zone.getSyncMode().name().toLowerCase(Locale.ROOT)
             + "  &7Volume: &f" + (zone.inheritsVolume() ? "inherit" : formatNumber(zone.getVolume()))
             + "  &7Priority: &f" + zone.getPriority());
+        MessageUtil.sendMessage(sender, "&7Sound source: &f" + (zone.isPointSource()
+            ? "point (from the center, fades with distance)" : "player (follows the listener)"));
         warnIfIdle(sender, zone);
         return true;
     }
@@ -233,7 +237,7 @@ public class ZoneSubcommand implements SubCommand {
 
     private boolean handleCenter(CommandSender sender, String[] args) {
         AmbientZone zone = require(sender, args);
-        if (zone == null) {
+        if (zone == null || lockedByJukebox(sender, zone)) {
             return true;
         }
         if (!(sender instanceof Player)) {
@@ -249,7 +253,7 @@ public class ZoneSubcommand implements SubCommand {
 
     private boolean handlePos(CommandSender sender, String[] args, int which) {
         AmbientZone zone = require(sender, args);
-        if (zone == null) {
+        if (zone == null || lockedByJukebox(sender, zone)) {
             return true;
         }
         if (!(sender instanceof Player)) {
@@ -290,13 +294,51 @@ public class ZoneSubcommand implements SubCommand {
             msg(sender, "zone-usage-playback");
             return true;
         }
-        return applied(sender, zone, "zone-playback-set",
+        applied(sender, zone, "zone-playback-set",
             "value", zone.getPlaybackMode().name().toLowerCase(Locale.ROOT));
+        if (zone.isPointSource() && zone.getPlaybackMode() == AmbientZone.PlaybackMode.INDIVIDUAL) {
+            msg(sender, "zone-point-forces-synced");
+        }
+        return true;
+    }
+
+    /**
+     * {@code /cjb zone source <zone> <player|point>}: where the music comes from.
+     * {@code player} (default) plays it at each listener's position;
+     * {@code point} plays it from the zone center like a jukebox, fading with
+     * distance and not cut off when leaving.
+     */
+    private boolean handleSource(CommandSender sender, String[] args) {
+        AmbientZone zone = require(sender, args);
+        if (zone == null || lockedByJukebox(sender, zone)) {
+            return true;
+        }
+        if (args.length < 3) {
+            msg(sender, "zone-usage-source");
+            return true;
+        }
+        String source = args[2].toLowerCase(Locale.ROOT);
+        if (source.equals("player")) {
+            zone.setSoundSource(AmbientZone.SoundSource.PLAYER);
+        } else if (source.equals("point") || source.equals("jukebox")) {
+            zone.setSoundSource(AmbientZone.SoundSource.POINT);
+        } else {
+            msg(sender, "zone-usage-source");
+            return true;
+        }
+        applied(sender, zone, "zone-source-set", "value", zone.isPointSource() ? "point" : "player");
+        if (zone.isPointSource()) {
+            msg(sender, "zone-source-point-hint");
+            if (zone.getPlaybackMode() == AmbientZone.PlaybackMode.INDIVIDUAL) {
+                msg(sender, "zone-point-forces-synced");
+            }
+        }
+        return true;
     }
 
     private boolean handleRegion(CommandSender sender, String[] args) {
         AmbientZone zone = require(sender, args);
-        if (zone == null) {
+        if (zone == null || lockedByJukebox(sender, zone)) {
             return true;
         }
         if (args.length < 3) {
@@ -323,7 +365,7 @@ public class ZoneSubcommand implements SubCommand {
      */
     private boolean handleGlobal(CommandSender sender, String[] args) {
         AmbientZone zone = require(sender, args);
-        if (zone == null) {
+        if (zone == null || lockedByJukebox(sender, zone)) {
             return true;
         }
         zone.setType(AmbientZone.ZoneType.GLOBAL);
@@ -488,6 +530,89 @@ public class ZoneSubcommand implements SubCommand {
         return true;
     }
 
+    /**
+     * {@code /cjb zone jukebox <zone> [release|unbind]}: hands out the zone's
+     * jukebox item (creating the zone if needed). {@code release} marks a
+     * jukebox as gone that disappeared without being broken (e.g. WorldEdit),
+     * {@code unbind} turns the zone back into an ordinary zone.
+     */
+    private boolean handleJukebox(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            msg(sender, "zone-usage-jukebox");
+            return true;
+        }
+        String id = args[1];
+        AmbientZone zone = plugin.getAmbientZoneManager().getZone(id);
+        String option = args.length > 2 ? args[2].toLowerCase(Locale.ROOT) : "";
+
+        if (option.equals("release") || option.equals("unbind")) {
+            if (zone == null) {
+                msg(sender, "zone-not-found", "zone", id);
+                return true;
+            }
+            if (option.equals("release")) {
+                zone.removeJukebox();
+                return applied(sender, zone, "zone-jukebox-released");
+            }
+            zone.setJukeboxBound(false);
+            return applied(sender, zone, "zone-jukebox-unbound");
+        }
+        if (!option.isEmpty()) {
+            msg(sender, "zone-usage-jukebox");
+            return true;
+        }
+        if (!(sender instanceof Player player)) {
+            msg(sender, "command-only-players");
+            return true;
+        }
+
+        if (zone == null) {
+            if (!InputValidator.isValidZoneId(id)) {
+                msg(sender, "zone-invalid-id", "value", id);
+                return true;
+            }
+            zone = plugin.getAmbientZoneManager().createZone(id, newZone -> {
+                newZone.setWorld(player.getWorld().getName());
+                newZone.setCenter(player.getLocation().getX(), player.getLocation().getY(), player.getLocation().getZ());
+                newZone.setRadius(16);
+                newZone.setJukeboxBound(true);
+                newZone.setSoundSource(AmbientZone.SoundSource.POINT);
+            });
+            if (zone == null) {
+                msg(sender, "zone-create-failed", "zone", id);
+                return true;
+            }
+            msg(sender, "zone-created", "zone", id);
+        } else if (zone.isJukeboxPlaced()) {
+            java.util.Map<String, String> placeholders = new java.util.HashMap<>();
+            placeholders.put("zone", zone.getId());
+            placeholders.put("coords", zone.getJukeboxX() + ", " + zone.getJukeboxY() + ", " + zone.getJukeboxZ());
+            MessageUtil.sendMessage(sender, plugin.getLanguageManager()
+                .getMessage("zone-jukebox-already-placed", placeholders));
+            return true;
+        } else if (!zone.isJukeboxBound()) {
+            zone.setJukeboxBound(true);
+            plugin.getAmbientZoneManager().saveZone(zone);
+        }
+
+        de.boondocksulfur.customjukebox.utils.InventoryUtil.giveOrDrop(player,
+            de.boondocksulfur.customjukebox.listeners.ZoneJukeboxListener.createItem(zone));
+        msg(sender, "zone-jukebox-given", "zone", zone.getId());
+        return true;
+    }
+
+    /**
+     * A placed zone jukebox is the zone's center; area and source commands
+     * would silently move the music away from it.
+     */
+    private boolean lockedByJukebox(CommandSender sender, AmbientZone zone) {
+        if (!zone.isJukeboxPlaced()) {
+            return false;
+        }
+        msg(sender, "zone-jukebox-locked", "zone", zone.getId());
+        return true;
+    }
+
     // ==================== HELPERS ====================
 
     /**
@@ -569,11 +694,17 @@ public class ZoneSubcommand implements SubCommand {
 
     private Double parseDouble(CommandSender sender, String raw) {
         try {
-            return Double.parseDouble(raw);
-        } catch (NumberFormatException e) {
-            msg(sender, "zone-not-a-number", "value", raw);
-            return null;
+            double value = Double.parseDouble(raw);
+            // "NaN" and "Infinity" parse fine but pass every range check
+            // (NaN <= 0 is false), leaving a zone that can never play
+            if (Double.isFinite(value)) {
+                return value;
+            }
+        } catch (NumberFormatException ignored) {
+            // Reported below
         }
+        msg(sender, "zone-not-a-number", "value", raw);
+        return null;
     }
 
     private boolean parseBool(String raw) {
@@ -627,6 +758,10 @@ public class ZoneSubcommand implements SubCommand {
                     return filter(args[2], "immediate", "next_track");
                 case "playback":
                     return filter(args[2], "synced", "individual");
+                case "source":
+                    return filter(args[2], "player", "point");
+                case "jukebox":
+                    return filter(args[2], "release", "unbind");
                 case "height":
                     return filter(args[2], "full", "limited");
                 case "volume":

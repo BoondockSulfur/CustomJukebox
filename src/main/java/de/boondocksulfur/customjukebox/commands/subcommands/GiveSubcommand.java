@@ -74,7 +74,10 @@ public class GiveSubcommand implements SubCommand {
 
         org.bukkit.inventory.ItemStack itemStack = disc.createItemStack();
         itemStack.setAmount(amount);
-        target.getInventory().addItem(itemStack);
+        // On the target's own thread (Folia); whatever does not fit is dropped
+        // at their feet instead of silently vanishing
+        de.boondocksulfur.customjukebox.utils.SchedulerUtil.runPlayerTask(plugin, target,
+            () -> de.boondocksulfur.customjukebox.utils.InventoryUtil.giveOrDrop(target, itemStack));
 
         MessageUtil.sendMessage(sender, plugin.getLanguageManager().getMessage("disc-given")
             .replace("{disc}", disc.getDisplayName())

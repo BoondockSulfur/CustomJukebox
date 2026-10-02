@@ -53,6 +53,12 @@ public final class ConfigWriter {
     private final ExecutorService worker;
     /** Latest queued content per file; a newer save replaces an unwritten older one. */
     private final Map<Path, PendingWrite> pending = new ConcurrentHashMap<>();
+    /**
+     * Files that failed to load. What the plugin holds in memory for them is a
+     * fallback, not the file's content - writing it back would replace every
+     * entry the admin had with the few made since.
+     */
+    private final Map<Path, Boolean> blocked = new ConcurrentHashMap<>();
     private volatile boolean stopped;
 
     /**
@@ -88,6 +94,15 @@ public final class ConfigWriter {
      */
     public void save(File file, JsonObject snapshot, int maxBackups, long backupIntervalMillis) {
         Path path = file.toPath();
+        Boolean warned = blocked.get(path);
+        if (warned != null) {
+            if (!warned) {
+                blocked.put(path, true);
+                plugin.getLogger().severe(file.getName() + " could not be read at load time, so changes are NOT "
+                    + "saved to it (that would overwrite its content). Fix the file, then run /cjb reload.");
+            }
+            return;
+        }
         pending.put(path, new PendingWrite(snapshot, maxBackups, backupIntervalMillis));
 
         if (stopped) {
@@ -102,6 +117,42 @@ public final class ConfigWriter {
                 + " inline: " + e.getMessage());
             drain(path);
         }
+    }
+
+    /**
+     * Refuses all saves to a file until {@link #unblock} is called. Used when the
+     * file failed to load, see {@link #blocked}.
+     *
+     * @param file file that could not be read
+     */
+    public void block(File file) {
+        Path path = file.toPath();
+        pending.remove(path);
+        blocked.putIfAbsent(path, false);
+    }
+
+    /**
+     * Allows saves to a file again after it loaded successfully.
+     *
+     * @param file file that was read without error
+     */
+    public void unblock(File file) {
+        blocked.remove(file.toPath());
+    }
+
+    /**
+     * Handles a config file that failed to parse: keeps a copy of it, tells the
+     * admin, and blocks writes to it so the fallback in memory cannot replace it.
+     *
+     * @param file the file that could not be read
+     * @param error what went wrong
+     */
+    public void quarantine(File file, Exception error) {
+        block(file);
+        File copy = BackupUtil.preserveUnreadable(plugin, file);
+        plugin.getLogger().log(Level.SEVERE, "Failed to read " + file.getName()
+            + (copy != null ? " (copy kept as " + copy.getName() + ")" : "")
+            + " - it will not be written to until it is fixed and reloaded with /cjb reload", error);
     }
 
     /**

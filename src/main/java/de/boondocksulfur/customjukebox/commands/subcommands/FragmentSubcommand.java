@@ -75,7 +75,11 @@ public class FragmentSubcommand implements SubCommand {
             }
         }
 
-        target.getInventory().addItem(fragment.createItemStack(amount));
+        // On the target's own thread (Folia); whatever does not fit is dropped
+        // at their feet instead of silently vanishing
+        org.bukkit.inventory.ItemStack fragments = fragment.createItemStack(amount);
+        de.boondocksulfur.customjukebox.utils.SchedulerUtil.runPlayerTask(plugin, target,
+            () -> de.boondocksulfur.customjukebox.utils.InventoryUtil.giveOrDrop(target, fragments));
 
         String message = plugin.getLanguageManager().getMessage("fragment-given");
         message = message.replace("{amount}", String.valueOf(amount))

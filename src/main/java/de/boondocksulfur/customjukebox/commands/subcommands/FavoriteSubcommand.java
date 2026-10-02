@@ -7,6 +7,7 @@ import de.boondocksulfur.customjukebox.model.DiscPlaylist;
 import de.boondocksulfur.customjukebox.model.PlaybackRange;
 import de.boondocksulfur.customjukebox.model.RepeatMode;
 import de.boondocksulfur.customjukebox.utils.MessageUtil;
+import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -16,6 +17,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -33,6 +36,8 @@ public class FavoriteSubcommand implements SubCommand {
     private static final List<String> ACTIONS = Arrays.asList("add", "remove", "toggle", "list", "play", "clear");
     /** Reserved playlist id for the ad-hoc favourites playlist. */
     private static final String FAVORITES_PLAYLIST_ID = "__favorites__";
+    /** Where each player's favourites playback was last started. */
+    private final Map<UUID, Location> activeFavorites = new ConcurrentHashMap<>();
     /** Flags {@code favorite play} accepts, in any order. */
     private static final List<String> PLAY_FLAGS = Arrays.asList(
         "shuffle", "loop", "repeat-one", "off", "global", "world", "50", "100", "200");
@@ -197,12 +202,36 @@ public class FavoriteSubcommand implements SubCommand {
             return true;
         }
 
+        // Favourites are open to everyone; reaching beyond earshot is not. The
+        // wider ranges are what /cjb playlist play offers, so they need its
+        // permission - otherwise any player could loop music for the whole server.
+        if (range.getType() != PlaybackRange.RangeType.NORMAL
+                && !player.hasPermission("customjukebox.playlist")) {
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("favorite-play-range-denied"));
+            return true;
+        }
+
+        Location playLocation = player.getLocation().getBlock().getLocation();
+        if (!plugin.getIntegrationManager().canUseJukebox(player, playLocation)) {
+            MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("no-permission-region"));
+            return true;
+        }
+
+        // One favourites playback per player: starting again replaces the last
+        // one instead of stacking up playbacks all over the map
+        String playlistId = FAVORITES_PLAYLIST_ID + ":" + player.getUniqueId();
+        Location previous = activeFavorites.remove(player.getUniqueId());
+        if (previous != null && previous.isWorldLoaded()
+                && playlistId.equals(plugin.getPlaybackManager().getPlaylistIdAt(previous))) {
+            plugin.getPlaybackManager().stopPlayback(previous);
+        }
+
         List<String> ids = discs.stream().map(CustomDisc::getId).collect(Collectors.toList());
-        DiscPlaylist adHoc = new DiscPlaylist(FAVORITES_PLAYLIST_ID,
+        DiscPlaylist adHoc = new DiscPlaylist(playlistId,
             plugin.getLanguageManager().getRawMessage("favorite-playlist-name"), "", ids);
 
-        plugin.getPlaybackManager().startPlaylistPlayback(
-            player.getLocation().getBlock().getLocation(), adHoc, repeatMode, shuffle, range);
+        plugin.getPlaybackManager().startPlaylistPlayback(playLocation, adHoc, repeatMode, shuffle, range);
+        activeFavorites.put(player.getUniqueId(), playLocation);
 
         Map<String, String> placeholders = new HashMap<>();
         placeholders.put("count", String.valueOf(discs.size()));
@@ -239,7 +268,7 @@ public class FavoriteSubcommand implements SubCommand {
             String action = args[0].toLowerCase(Locale.ROOT);
             String prefix = args[1].toLowerCase(Locale.ROOT);
             if (action.equals("play")) {
-                return PLAY_FLAGS.stream()
+                return playFlagsFor(sender).stream()
                     .filter(s -> s.startsWith(prefix)).collect(Collectors.toList());
             }
             if (action.equals("remove")) {
@@ -257,10 +286,20 @@ public class FavoriteSubcommand implements SubCommand {
         }
         if (args.length >= 3 && args.length <= 5 && args[0].equalsIgnoreCase("play")) {
             String prefix = args[args.length - 1].toLowerCase(Locale.ROOT);
-            return PLAY_FLAGS.stream()
+            return playFlagsFor(sender).stream()
                 .filter(s -> s.startsWith(prefix))
                 .collect(Collectors.toList());
         }
         return new ArrayList<>();
+    }
+
+    /** Play flags to suggest; the wider ranges only to those allowed to use them. */
+    private List<String> playFlagsFor(CommandSender sender) {
+        if (sender.hasPermission("customjukebox.playlist")) {
+            return PLAY_FLAGS;
+        }
+        return PLAY_FLAGS.stream()
+            .filter(flag -> PlaybackRange.parse(flag) == null)
+            .collect(Collectors.toList());
     }
 }

@@ -71,6 +71,9 @@ public class VolumeSubcommand implements SubCommand {
             return true;
         }
 
+        // Setting a volume lifts a mute, which affects every zone
+        boolean wasMuted = plugin.getConfigManager().isMuted();
+
         // Set volume
         plugin.getConfigManager().setVolume(volume);
 
@@ -89,7 +92,11 @@ public class VolumeSubcommand implements SubCommand {
             // Zones on `inherit` follow this volume but are not jukebox
             // playbacks, so they need restarting separately or the flag looks
             // like it did nothing wherever ambient music is playing.
-            plugin.getAmbientZoneManager().restartInheritingZones();
+            if (wasMuted) {
+                plugin.getAmbientZoneManager().restartAllZones();
+            } else {
+                plugin.getAmbientZoneManager().restartInheritingZones();
+            }
         }
 
         // Send success message

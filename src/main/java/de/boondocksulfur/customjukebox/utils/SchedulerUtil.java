@@ -184,6 +184,9 @@ public class SchedulerUtil {
      * @return Cancellable task handle (null only if scheduling failed)
      */
     public static TaskHandle runLater(Plugin plugin, Location location, Runnable task, long delayTicks) {
+        if (!plugin.isEnabled()) {
+            return null;
+        }
         if (isFolia()) {
             try {
                 // Bukkit.getRegionScheduler().runDelayed(plugin, location, scheduledTask -> task.run(), delayTicks);
@@ -214,6 +217,9 @@ public class SchedulerUtil {
      * @param task Task to run
      */
     public static void run(Plugin plugin, Location location, Runnable task) {
+        if (runInlineIfDisabled(plugin, task)) {
+            return;
+        }
         if (isFolia()) {
             try {
                 // Bukkit.getRegionScheduler().run(plugin, location, scheduledTask -> task.run());
@@ -257,6 +263,9 @@ public class SchedulerUtil {
      * @param task Task to run
      */
     public static void runPlayerTask(Plugin plugin, Player player, Runnable task) {
+        if (runInlineIfDisabled(plugin, task)) {
+            return;
+        }
         if (isFolia()) {
             try {
                 // player.getScheduler().run(plugin, scheduledTask -> task.run(), null);
@@ -286,6 +295,9 @@ public class SchedulerUtil {
      * @return Cancellable task handle (null only if scheduling failed)
      */
     public static TaskHandle runEntityTaskLater(Plugin plugin, Entity entity, Runnable task, long delayTicks) {
+        if (!plugin.isEnabled()) {
+            return null;
+        }
         if (isFolia()) {
             try {
                 // entity.getScheduler().runDelayed(plugin, scheduledTask -> task.run(), null, delayTicks);
@@ -312,6 +324,9 @@ public class SchedulerUtil {
      * @param task Task to run asynchronously
      */
     public static void runAsync(Plugin plugin, Runnable task) {
+        if (!plugin.isEnabled()) {
+            return;
+        }
         if (isFolia()) {
             try {
                 // Bukkit.getAsyncScheduler().runNow(plugin, scheduledTask -> task.run());
@@ -339,6 +354,9 @@ public class SchedulerUtil {
      * @param delayTicks Delay in ticks
      */
     public static void runAsyncLater(Plugin plugin, Runnable task, long delayTicks) {
+        if (!plugin.isEnabled()) {
+            return;
+        }
         if (isFolia()) {
             try {
                 // Bukkit.getAsyncScheduler().runDelayed(plugin, scheduledTask -> task.run(), delayMs, TimeUnit.MILLISECONDS);
@@ -402,6 +420,9 @@ public class SchedulerUtil {
      * @return Cancellable task handle (null only if scheduling failed)
      */
     public static TaskHandle runGlobalLater(Plugin plugin, Runnable task, long delayTicks) {
+        if (!plugin.isEnabled()) {
+            return null;
+        }
         long delay = Math.max(1, delayTicks);
         if (isFolia()) {
             try {
@@ -430,6 +451,9 @@ public class SchedulerUtil {
      * @return Cancellable task handle (null only if scheduling failed)
      */
     public static TaskHandle runGlobalTimer(Plugin plugin, Runnable task, long initialDelayTicks, long periodTicks) {
+        if (!plugin.isEnabled()) {
+            return null;
+        }
         long initial = Math.max(1, initialDelayTicks);
         long period = Math.max(1, periodTicks);
         if (isFolia()) {
@@ -451,6 +475,29 @@ public class SchedulerUtil {
             BukkitTask bukkitTask = Bukkit.getScheduler().runTaskTimer(plugin, task, initial, period);
             return bukkitTask::cancel;
         }
+    }
+
+    /**
+     * Once a plugin is disabled, every scheduler refuses it: Paper throws
+     * IllegalPluginAccessException, Folia's schedulers do the same. That state
+     * is reached in onDisable, where cleanup (stopping sounds) still wants to
+     * run. "Run now" work is therefore executed inline, best effort; delayed work
+     * is dropped, since nothing of this plugin may run after disable anyway.
+     *
+     * @return true if the caller must not schedule
+     */
+    private static boolean runInlineIfDisabled(Plugin plugin, Runnable task) {
+        if (plugin.isEnabled()) {
+            return false;
+        }
+        if (task != null) {
+            try {
+                task.run();
+            } catch (Exception e) {
+                plugin.getLogger().fine("Cleanup task after disable failed: " + e.getMessage());
+            }
+        }
+        return true;
     }
 
     /**

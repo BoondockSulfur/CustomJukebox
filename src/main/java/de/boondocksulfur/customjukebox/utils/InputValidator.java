@@ -28,6 +28,17 @@ public class InputValidator {
      */
     public static final int MAX_CUSTOM_MODEL_DATA = 1_000_000;
 
+    /**
+     * Longest track a disc may declare. Ticks are stored as an int, and an
+     * entered number of seconds is multiplied by 20 - without a cap a large
+     * input overflows into a negative duration, which reads as "unknown" and
+     * silently disables auto-stop and playlist progression.
+     */
+    public static final int MAX_DURATION_SECONDS = 24 * 60 * 60;
+
+    /** A crafting table has nine slots; more fragments can never be crafted. */
+    public static final int MAX_FRAGMENT_COUNT = 9;
+
     // IDs are referenced via space-separated command arguments, so they must not
     // contain whitespace or exotic characters.
     private static final Pattern ID_PATTERN = Pattern.compile("[A-Za-z0-9_-]+");

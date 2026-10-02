@@ -144,7 +144,7 @@ public class CustomDisc {
             }
 
             if (author != null && !author.isEmpty()) {
-                loreComponents.add(AdventureUtil.parseComponent("§7By: §e" + author));
+                loreComponents.add(AdventureUtil.parseComponent("&7By: &e" + author));
             }
             meta.lore(loreComponents);
 

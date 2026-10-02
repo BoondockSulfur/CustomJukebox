@@ -49,6 +49,7 @@ public class ZoneEditorGUI implements Listener {
     private static final int SLOT_VOLUME = 14;
     private static final int SLOT_PRIORITY = 15;
     private static final int SLOT_HEIGHT = 16;
+    private static final int SLOT_SOURCE = 20;
     private static final int SLOT_AREA = 21;
     private static final int SLOT_SHUFFLE = 22;
     private static final int SLOT_ENABLED = 23;
@@ -93,14 +94,16 @@ public class ZoneEditorGUI implements Listener {
             "§a§lLoop", "§7Loops the whole playlist forever.",
             "§7Current: §f" + zone.isLoop(), "§eClick to toggle"));
 
-        boolean individual = zone.getPlaybackMode() == AmbientZone.PlaybackMode.INDIVIDUAL;
+        // A point source is always played synced, whatever the stored mode says
+        boolean individual = zone.getPlaybackMode() == AmbientZone.PlaybackMode.INDIVIDUAL
+            && !zone.isPointSource();
 
         inv.setItem(SLOT_PLAYBACK, button(individual ? Material.PLAYER_HEAD : Material.JUKEBOX,
             "§6§lPlayback mode",
             "§7synced §8- §feveryone hears the same song together (events)",
             "§7individual §8- §feach player hears full songs from entry (lobby)",
             "§7Current: §f" + zone.getPlaybackMode().name().toLowerCase(Locale.ROOT),
-            "§eClick to toggle"));
+            zone.isPointSource() ? "§8Point source: always played synced" : "§eClick to toggle"));
 
         inv.setItem(SLOT_SYNC, button(Material.COMPASS, "§d§lSync mode",
             "§7How late arrivals join a running track §8(synced mode only)§7:",
@@ -159,6 +162,18 @@ public class ZoneEditorGUI implements Listener {
             "§7Current: §f" + zone.isShuffle(),
             "§8Changing this restarts the zone's playlist.",
             "§eClick to toggle"));
+
+        List<String> sourceLore = new ArrayList<>();
+        sourceLore.add("§7player §8- §ffollows the listener, same loudness");
+        sourceLore.add("§8  everywhere, stops when leaving the zone");
+        sourceLore.add("§7point §8- §fplays from the zone center like a");
+        sourceLore.add("§8  jukebox: fades with distance, not cut off");
+        sourceLore.add("§8  when leaving §7(radius zones only, always synced)");
+        sourceLore.add("§7Current: §f" + (zone.isPointSource() ? "point" : "player"));
+        sourceLore.add("§8Changing this restarts the zone's playlist.");
+        sourceLore.add("§eClick to toggle");
+        inv.setItem(SLOT_SOURCE, button(zone.isPointSource() ? Material.BELL : Material.PLAYER_HEAD,
+            "§6§lSound source", sourceLore.toArray(new String[0])));
 
         inv.setItem(SLOT_ENABLED, button(zone.isEnabled() ? Material.EMERALD_BLOCK : Material.REDSTONE_BLOCK,
             zone.isEnabled() ? "§a§lEnabled" : "§c§lDisabled",
@@ -222,7 +237,9 @@ public class ZoneEditorGUI implements Listener {
         if (event.getClickedInventory() != null && event.getClickedInventory().equals(event.getView().getTopInventory())) {
             event.setCancelled(true);
         } else {
-            if (event.isShiftClick()) {
+            // Double-click collect would pull matching items out of the GUI
+            if (event.isShiftClick()
+                    || event.getAction() == org.bukkit.event.inventory.InventoryAction.COLLECT_TO_CURSOR) {
                 event.setCancelled(true);
             }
             return;
@@ -273,6 +290,17 @@ public class ZoneEditorGUI implements Listener {
                 break;
             case SLOT_SHUFFLE:
                 zone.setShuffle(!zone.isShuffle());
+                break;
+            case SLOT_SOURCE:
+                if (zone.isJukeboxPlaced()) {
+                    // The placed jukebox is the source; switching away would move the music
+                    MessageUtil.sendMessage(player, plugin.getLanguageManager()
+                        .getMessage("zone-jukebox-locked", "zone", zone.getId()));
+                    changed = false;
+                    break;
+                }
+                zone.setSoundSource(zone.isPointSource()
+                    ? AmbientZone.SoundSource.PLAYER : AmbientZone.SoundSource.POINT);
                 break;
             case SLOT_ENABLED:
                 zone.setEnabled(!zone.isEnabled());

@@ -99,7 +99,24 @@ public class AmbientZoneManager {
         /** When the current track started, for the progress display. */
         volatile long trackStartMillis;
         final Set<UUID> listeners = ConcurrentHashMap.newKeySet();
+        /**
+         * Point-source zones only: everyone who was sent the current track. A
+         * player who walks out keeps hearing it fade away, so they leave the
+         * listener set but stay in here - to be stopped at the next track
+         * boundary, and so that walking back in does not start the track a
+         * second time over the one still playing.
+         */
+        final Set<UUID> received = ConcurrentHashMap.newKeySet();
+        /** Captured at start: the source is part of the signature, so a change restarts the timeline. */
+        final boolean point;
         volatile SchedulerUtil.TaskHandle trackTask;
+        /**
+         * Bumped whenever a track timer is scheduled. The timer callback only
+         * acts if it still carries the current value, so a skip that coincides
+         * with a regular track end cannot advance twice and leave two timer
+         * chains running.
+         */
+        int trackGeneration;
         // A non-looping playlist that played through: the zone stays active but
         // idle (silent) until a new player entering restarts it from track 0.
         volatile boolean finished;
@@ -111,6 +128,7 @@ public class AmbientZoneManager {
             this.zone = zone;
             this.discs = discs;
             this.signature = playbackSignature(zone);
+            this.point = zone.isPointSource();
             this.index = 0;
             this.current = discs.isEmpty() ? null : discs.get(0);
             this.trackStartMillis = System.currentTimeMillis();
@@ -119,7 +137,13 @@ public class AmbientZoneManager {
         }
 
         boolean isIndividual() {
-            return zone.getPlaybackMode() == AmbientZone.PlaybackMode.INDIVIDUAL;
+            // A point source is one shared jukebox - everyone hears the same track
+            return !point && zone.getPlaybackMode() == AmbientZone.PlaybackMode.INDIVIDUAL;
+        }
+
+        /** Who must be stopped when the current track ends or the zone goes quiet. */
+        Set<UUID> hearing() {
+            return point ? received : listeners;
         }
     }
 
@@ -134,11 +158,14 @@ public class AmbientZoneManager {
             + "|" + zone.isLoop()
             + "|" + zone.getPlaybackMode()
             + "|" + zone.isShuffle()
-            + "|" + zone.getVolume();
+            + "|" + zone.getVolume()
+            + "|" + zone.getSoundSource();
     }
 
     /** A single player's playlist cursor inside an INDIVIDUAL-mode zone. */
     private static final class IndividualTrack {
+        /** This player's own order - shuffled per player, reshuffled per lap. */
+        final List<CustomDisc> order;
         volatile int index;
         volatile CustomDisc current;
         volatile long trackStartMillis;
@@ -149,6 +176,12 @@ public class AmbientZoneManager {
          * under the cursor's monitor before starting the next track.
          */
         volatile boolean cancelled;
+        /** Same purpose as {@link ZonePlayback#trackGeneration}. */
+        int generation;
+
+        IndividualTrack(List<CustomDisc> order) {
+            this.order = order;
+        }
     }
 
     public AmbientZoneManager(CustomJukebox plugin) {
@@ -165,7 +198,11 @@ public class AmbientZoneManager {
 
     // ==================== CONFIG LOADING ====================
 
-    private void loadZonesFile() {
+    /**
+     * @return true if zones.json was read; false if not, in which case the
+     *         previously loaded zones stay as they are
+     */
+    private boolean loadZonesFile() {
         try {
             // A queued save must land before we read the file back
             if (plugin.getConfigWriter() != null) {
@@ -184,12 +221,17 @@ public class AmbientZoneManager {
                 throw new IOException("zones.json exceeds maximum file size of " + (MAX_FILE_SIZE / 1024 / 1024) + " MB");
             }
 
+            JsonObject loaded;
             try (Reader reader = new InputStreamReader(new FileInputStream(zonesFile), StandardCharsets.UTF_8)) {
-                this.zonesConfig = gson.fromJson(reader, JsonObject.class);
+                loaded = gson.fromJson(reader, JsonObject.class);
             }
-            if (zonesConfig == null) {
-                zonesConfig = new JsonObject();
+            if (loaded == null) {
+                loaded = new JsonObject();
             }
+            synchronized (configLock) {
+                this.zonesConfig = loaded;
+            }
+            plugin.getConfigWriter().unblock(zonesFile);
             boolean addedKeys;
             boolean versionChanged;
             synchronized (configLock) {
@@ -201,7 +243,7 @@ public class AmbientZoneManager {
                 // "zones" map with examples.
                 addedKeys = mergeDefaults();
 
-                int fileVersion = zonesConfig.has("version") ? zonesConfig.get("version").getAsInt() : 0;
+                int fileVersion = (int) getDbl(zonesConfig, "version", 0);
                 versionChanged = fileVersion != ZONES_CONFIG_VERSION && fileVersion <= ZONES_CONFIG_VERSION;
                 if (versionChanged) {
                     zonesConfig.addProperty("version", ZONES_CONFIG_VERSION);
@@ -210,10 +252,18 @@ public class AmbientZoneManager {
             if (addedKeys || versionChanged) {
                 saveZonesFile();
             }
+            return true;
         } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to load zones.json", e);
-            this.zonesConfig = new JsonObject();
-            this.zonesConfig.add("zones", new JsonObject());
+            // Never write the fallback over the file - see ConfigWriter.quarantine
+            plugin.getConfigWriter().quarantine(zonesFile, e);
+            if (this.zonesConfig == null) {
+                JsonObject empty = new JsonObject();
+                empty.add("zones", new JsonObject());
+                this.zonesConfig = empty;
+                return true;
+            }
+            plugin.getLogger().severe("Keeping the previously loaded zones.");
+            return false;
         }
     }
 
@@ -235,19 +285,20 @@ public class AmbientZoneManager {
     }
 
     private void loadZones() {
-        zones.clear();
-        if (!zonesConfig.has("zones") || !zonesConfig.get("zones").isJsonObject()) {
-            return;
-        }
-        JsonObject zonesSection = zonesConfig.getAsJsonObject("zones");
-        for (String id : zonesSection.keySet()) {
-            try {
-                AmbientZone zone = parseZone(id, zonesSection.getAsJsonObject(id));
-                zones.put(id, zone);
-            } catch (Exception e) {
-                plugin.getLogger().warning("Failed to parse ambient zone '" + id + "': " + e.getMessage());
+        Map<String, AmbientZone> loaded = new HashMap<>();
+        if (zonesConfig.has("zones") && zonesConfig.get("zones").isJsonObject()) {
+            JsonObject zonesSection = zonesConfig.getAsJsonObject("zones");
+            for (String id : zonesSection.keySet()) {
+                try {
+                    AmbientZone zone = parseZone(id, zonesSection.getAsJsonObject(id));
+                    loaded.put(id, zone);
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Failed to parse ambient zone '" + id + "': " + e.getMessage());
+                }
             }
         }
+        zones.clear();
+        zones.putAll(loaded);
         if (!zones.isEmpty()) {
             plugin.getLogger().info("Loaded " + zones.size() + " ambient zone(s)");
         }
@@ -273,7 +324,8 @@ public class AmbientZoneManager {
             JsonObject center = data.getAsJsonObject("center");
             zone.setCenter(getDbl(center, "x", 0), getDbl(center, "y", 64), getDbl(center, "z", 0));
         }
-        zone.setRadius(getDbl(data, "radius", 32));
+        double radius = getDbl(data, "radius", 32);
+        zone.setRadius(Double.isFinite(radius) ? radius : 0);
         zone.setRegion(getStr(data, "region", ""));
 
         if (data.has("pos1") && data.get("pos1").isJsonObject()) {
@@ -287,7 +339,8 @@ public class AmbientZoneManager {
 
         zone.setPlaylistId(getStr(data, "playlist", ""));
         zone.setLoop(getBool(data, "loop", true));
-        zone.setVolume((float) getDbl(data, "volume", AmbientZone.VOLUME_INHERIT));
+        float volume = (float) getDbl(data, "volume", AmbientZone.VOLUME_INHERIT);
+        zone.setVolume(Float.isFinite(volume) ? volume : AmbientZone.VOLUME_INHERIT);
 
         String sync = getStr(data, "syncMode", "immediate");
         zone.setSyncMode("next_track".equalsIgnoreCase(sync)
@@ -300,6 +353,16 @@ public class AmbientZoneManager {
         zone.setFullHeight(getBool(data, "fullHeight", true));
         zone.setShuffle(getBool(data, "shuffle", false));
         zone.setPriority((int) getDbl(data, "priority", 0));
+        zone.setSoundSource("point".equalsIgnoreCase(getStr(data, "source", "player"))
+            ? AmbientZone.SoundSource.POINT : AmbientZone.SoundSource.PLAYER);
+        if (data.has("jukebox") && data.get("jukebox").isJsonObject()) {
+            JsonObject jukebox = data.getAsJsonObject("jukebox");
+            zone.placeJukebox((int) getDbl(jukebox, "x", 0), (int) getDbl(jukebox, "y", 0),
+                (int) getDbl(jukebox, "z", 0), getStr(jukebox, "owner", ""));
+            if (!getBool(jukebox, "placed", false)) {
+                zone.removeJukebox();
+            }
+        }
         return zone;
     }
 
@@ -339,6 +402,14 @@ public class AmbientZoneManager {
         data.addProperty("fullHeight", zone.isFullHeight());
         data.addProperty("shuffle", zone.isShuffle());
         data.addProperty("priority", zone.getPriority());
+        data.addProperty("source", zone.isPointSource() ? "point" : "player");
+        // Only written for zones that use a zone jukebox, so other zones' JSON stays as it was
+        if (zone.isJukeboxBound()) {
+            JsonObject jukebox = corner(zone.getJukeboxX(), zone.getJukeboxY(), zone.getJukeboxZ());
+            jukebox.addProperty("placed", zone.isJukeboxPlaced());
+            jukebox.addProperty("owner", zone.getJukeboxOwner());
+            data.add("jukebox", jukebox);
+        }
         return data;
     }
 
@@ -355,10 +426,12 @@ public class AmbientZoneManager {
         synchronized (configLock) {
             zonesConfig.addProperty("version", ZONES_CONFIG_VERSION);
             snapshot = zonesConfig.deepCopy();
+            // Queued under the lock the snapshot was taken under, so an older
+            // snapshot from a concurrent save can never land after a newer one
+            plugin.getConfigWriter().save(zonesFile, snapshot,
+                plugin.getConfigManager().getMaxBackups(),
+                plugin.getConfigManager().getBackupMinIntervalMillis());
         }
-        plugin.getConfigWriter().save(zonesFile, snapshot,
-            plugin.getConfigManager().getMaxBackups(),
-            plugin.getConfigManager().getBackupMinIntervalMillis());
     }
 
     // ==================== LIFECYCLE ====================
@@ -451,8 +524,9 @@ public class AmbientZoneManager {
      */
     public void reload() {
         stop();
-        loadZonesFile();
-        loadZones();
+        if (loadZonesFile()) {
+            loadZones();
+        }
         start();
     }
 
@@ -485,7 +559,9 @@ public class AmbientZoneManager {
         // SYNCED runs one shared timeline immediately; INDIVIDUAL starts each
         // player's own timeline when they enter (see startIndividual).
         if (!zp.isIndividual()) {
-            scheduleTrackEnd(zp);
+            synchronized (zp) {
+                scheduleTrackEnd(zp);
+            }
         }
         return true;
     }
@@ -506,13 +582,22 @@ public class AmbientZoneManager {
         return playable;
     }
 
+    /** Must be called holding the playback's monitor. */
     private void scheduleTrackEnd(ZonePlayback zp) {
+        SchedulerUtil.cancelTask(zp.trackTask);
+        zp.trackTask = null;
         CustomDisc disc = zp.current;
         if (disc == null) {
             return;
         }
-        int duration = disc.getDurationTicks();
-        zp.trackTask = SchedulerUtil.runGlobalLater(plugin, () -> onTrackEnd(zp), duration);
+        int generation = ++zp.trackGeneration;
+        zp.trackTask = SchedulerUtil.runGlobalLater(plugin, () -> {
+            synchronized (zp) {
+                if (generation == zp.trackGeneration) {
+                    advanceTrack(zp);
+                }
+            }
+        }, disc.getDurationTicks());
     }
 
     /**
@@ -523,11 +608,14 @@ public class AmbientZoneManager {
      * {@code active} check and the playback below, leaving a track playing that
      * nothing would ever stop again.
      */
-    private void onTrackEnd(ZonePlayback zp) {
+    private void advanceTrack(ZonePlayback zp) {
         synchronized (zp) {
             if (!zp.active) {
                 return;
             }
+            // Whatever timer was pending belongs to the track that just ended
+            ++zp.trackGeneration;
+            SchedulerUtil.cancelTask(zp.trackTask);
 
             CustomDisc previous = zp.current;
 
@@ -542,8 +630,9 @@ public class AmbientZoneManager {
                     zp.finished = true;
                     zp.trackTask = null;
                     if (previous != null) {
-                        dispatchStop(zp.listeners, previous);
+                        dispatchStop(zp.hearing(), previous);
                     }
+                    zp.received.clear();
                     return;
                 }
             }
@@ -566,8 +655,9 @@ public class AmbientZoneManager {
             // configured duration) and (re)play the new one to everyone in the zone.
             // This is where IMMEDIATE arrivals re-sync and NEXT_TRACK arrivals join.
             if (previous != null) {
-                dispatchStop(zp.listeners, previous);
+                dispatchStop(zp.hearing(), previous);
             }
+            zp.received.clear();
             playSoundForAll(zp);
             scheduleTrackEnd(zp);
         }
@@ -590,6 +680,60 @@ public class AmbientZoneManager {
         }
         // Drop assignments for players who logged off between the join map and now.
         playerZone.keySet().removeIf(id -> Bukkit.getPlayer(id) == null);
+        showJukeboxNotes();
+    }
+
+    /**
+     * Note particles over every zone jukebox that is playing, like a vanilla
+     * jukebox shows them - so players can see where the music comes from.
+     */
+    private void showJukeboxNotes() {
+        for (ZonePlayback zp : playbacks.values()) {
+            AmbientZone zone = zp.zone;
+            if (!zp.active || zp.finished || zp.current == null || !zone.isJukeboxPlaced()) {
+                continue;
+            }
+            org.bukkit.World world = Bukkit.getWorld(zone.getWorld());
+            if (world == null) {
+                continue;
+            }
+            int bx = zone.getJukeboxX();
+            int bz = zone.getJukeboxZ();
+            Location above = new Location(world, bx + 0.5, zone.getJukeboxY() + 1.2, bz + 0.5);
+            // The note particle takes its color from the X offset (0..1)
+            double color = java.util.concurrent.ThreadLocalRandom.current().nextInt(25) / 24.0;
+            SchedulerUtil.run(plugin, above, () -> {
+                if (world.isChunkLoaded(bx >> 4, bz >> 4)) {
+                    world.spawnParticle(org.bukkit.Particle.NOTE, above, 0, color, 0, 0, 1);
+                }
+            });
+        }
+    }
+
+    /**
+     * The zone a placed zone jukebox block belongs to.
+     *
+     * <p>The block carries the zone ID, but that alone is not trusted: the zone
+     * must still exist and record this very block as its placed jukebox. A block
+     * left behind after its zone was deleted, unbound or re-created is then just
+     * an ordinary jukebox again.
+     *
+     * @param block block to check; must be read on its region thread on Folia
+     * @return the zone, or null if the block is not a zone jukebox
+     */
+    public AmbientZone zoneForJukebox(org.bukkit.block.Block block) {
+        if (block == null || block.getType() != org.bukkit.Material.JUKEBOX
+                || !(block.getState() instanceof org.bukkit.block.TileState state)) {
+            return null;
+        }
+        String zoneId = state.getPersistentDataContainer().get(
+            de.boondocksulfur.customjukebox.utils.ItemUtil.ZONE_JUKEBOX_KEY,
+            org.bukkit.persistence.PersistentDataType.STRING);
+        AmbientZone zone = zoneId == null ? null : zones.get(zoneId);
+        if (zone == null || !zone.isJukeboxAt(block.getWorld().getName(), block.getX(), block.getY(), block.getZ())) {
+            return null;
+        }
+        return zone;
     }
 
     private void evaluatePlayer(Player player) {
@@ -598,6 +742,10 @@ public class AmbientZoneManager {
         }
         UUID uuid = player.getUniqueId();
         Location loc = player.getLocation();
+
+        // Point-source zones overlap like jukeboxes do and stay outside the
+        // one-zone-per-player assignment below
+        evaluatePointZones(player, loc);
 
         String newZoneId = findZoneFor(loc);
         String oldZoneId = playerZone.get(uuid);
@@ -610,41 +758,117 @@ public class AmbientZoneManager {
         if (oldZoneId != null) {
             ZonePlayback oldZp = playbacks.get(oldZoneId);
             if (oldZp != null) {
-                if (oldZp.isIndividual()) {
-                    stopIndividual(oldZp, player);
-                } else {
-                    oldZp.listeners.remove(uuid);
-                    if (oldZp.current != null) {
-                        stopSound(player, oldZp.current);
+                leaveZone(oldZp, player);
+            }
+            playerZone.remove(uuid, oldZoneId);
+        }
+
+        // Entering a new zone. Only recorded once the player is actually
+        // attached: a zone restarted by a command in the meantime is left
+        // unrecorded, so the next scan attaches the player to its new timeline
+        // instead of treating them as already inside.
+        if (newZoneId != null) {
+            ZonePlayback newZp = playbacks.get(newZoneId);
+            if (newZp != null) {
+                enterZone(newZp, player, newZoneId);
+            }
+        }
+    }
+
+    /**
+     * Joins and leaves point-source zones. Leaving never stops the sound - it
+     * fades with distance on the client, like walking away from a jukebox.
+     */
+    private void evaluatePointZones(Player player, Location loc) {
+        UUID uuid = player.getUniqueId();
+        for (ZonePlayback zp : playbacks.values()) {
+            if (!zp.point) {
+                continue;
+            }
+            boolean inside = zp.zone.matchesWorld(loc) && zp.zone.withinRadius(loc);
+            synchronized (zp) {
+                if (!zp.active) {
+                    continue;
+                }
+                boolean listening = zp.listeners.contains(uuid);
+                if (inside && !listening) {
+                    zp.listeners.add(uuid);
+                    if (zp.finished) {
+                        restartTimeline(zp);
+                    } else if (zp.zone.getSyncMode() == AmbientZone.SyncMode.IMMEDIATE
+                            && zp.current != null && !zp.received.contains(uuid)) {
+                        // Still hearing this track from before? Then it goes on
+                        // as it is - starting it again would play it twice
+                        zp.received.add(uuid);
+                        playSound(player, zp.current, volumeFor(zp.zone, uuid), sourceOf(zp, player));
                     }
+                } else if (!inside && listening) {
+                    zp.listeners.remove(uuid);
                 }
             }
         }
+    }
 
-        // Entering a new zone.
-        if (newZoneId != null) {
-            ZonePlayback newZp = playbacks.get(newZoneId);
-            if (newZp != null && newZp.active) {
-                if (newZp.isIndividual()) {
-                    // Each player runs the playlist on their own, always hearing
-                    // complete tracks.
-                    startIndividual(newZp, player);
-                } else {
-                    newZp.listeners.add(uuid);
-                    if (newZp.finished) {
-                        // A non-loop zone that had played through: entering revives
-                        // it from track 0 for everyone currently inside.
-                        restartTimeline(newZp);
-                    } else if (newZp.zone.getSyncMode() == AmbientZone.SyncMode.IMMEDIATE && newZp.current != null) {
-                        playSound(player, newZp.current, volumeFor(newZp.zone, uuid));
-                    }
-                    // NEXT_TRACK: the player is now a listener and will be included
-                    // when onTrackEnd next fires - no sound yet.
+    /**
+     * Where a zone's sound is played for a player: the zone center for a point
+     * source, otherwise the player's own position.
+     */
+    private Location sourceOf(ZonePlayback zp, Player player) {
+        if (zp.point) {
+            org.bukkit.World world = Bukkit.getWorld(zp.zone.getWorld());
+            if (world != null) {
+                return new Location(world, zp.zone.getCenterX(), zp.zone.getCenterY(), zp.zone.getCenterZ());
+            }
+        }
+        return player.getLocation();
+    }
+
+    /**
+     * Detaches a player from a zone and stops what they hear from it. Under the
+     * playback's monitor, so a track change cannot pick the player up again
+     * halfway through.
+     */
+    private void leaveZone(ZonePlayback zp, Player player) {
+        synchronized (zp) {
+            if (zp.isIndividual()) {
+                stopIndividual(zp, player);
+            } else {
+                zp.listeners.remove(player.getUniqueId());
+                if (zp.current != null) {
+                    stopSound(player, zp.current);
                 }
             }
-            playerZone.put(uuid, newZoneId);
-        } else {
-            playerZone.remove(uuid);
+        }
+    }
+
+    /**
+     * Attaches a player to a zone. Under the playback's monitor: joining the
+     * listener set and reading the current track must not straddle a track
+     * change, or the player would hear the new track twice, slightly offset.
+     */
+    private void enterZone(ZonePlayback zp, Player player, String zoneId) {
+        UUID uuid = player.getUniqueId();
+        synchronized (zp) {
+            if (!zp.active) {
+                return; // Torn down concurrently - the next scan retries
+            }
+            if (zp.isIndividual()) {
+                // Each player runs the playlist on their own, always hearing
+                // complete tracks.
+                startIndividual(zp, player);
+            } else {
+                zp.listeners.add(uuid);
+                if (zp.finished) {
+                    // A non-loop zone that had played through: entering revives
+                    // it from track 0 for everyone currently inside.
+                    restartTimeline(zp);
+                } else if (zp.zone.getSyncMode() == AmbientZone.SyncMode.IMMEDIATE && zp.current != null) {
+                    playSound(player, zp.current, volumeFor(zp.zone, uuid), player.getLocation());
+                }
+                // NEXT_TRACK: the player is now a listener and will be included
+                // when the track next changes - no sound yet.
+            }
+            playerZone.put(uuid, zoneId);
         }
     }
 
@@ -660,16 +884,20 @@ public class AmbientZoneManager {
             return;
         }
         UUID uuid = player.getUniqueId();
-        IndividualTrack it = new IndividualTrack();
+        List<CustomDisc> order = new ArrayList<>(zp.discs);
+        if (zp.zone.isShuffle() && order.size() > 1) {
+            Collections.shuffle(order);
+        }
+        IndividualTrack it = new IndividualTrack(order);
         it.index = 0;
-        it.current = zp.discs.get(0);
+        it.current = order.get(0);
         it.trackStartMillis = System.currentTimeMillis();
         // Replace any prior cursor (defensive - a stale one shouldn't exist).
         IndividualTrack previous = zp.individual.put(uuid, it);
         if (previous != null) {
             cancelCursor(previous);
         }
-        playSound(player, it.current, volumeFor(zp.zone, uuid));
+        playSound(player, it.current, volumeFor(zp.zone, uuid), player.getLocation());
         scheduleIndividualEnd(zp, uuid, it);
     }
 
@@ -701,14 +929,25 @@ public class AmbientZoneManager {
     }
 
     private void scheduleIndividualEnd(ZonePlayback zp, UUID uuid, IndividualTrack it) {
-        CustomDisc disc = it.current;
-        if (disc == null) {
-            return;
+        synchronized (it) {
+            SchedulerUtil.cancelTask(it.task);
+            it.task = null;
+            CustomDisc disc = it.current;
+            if (disc == null) {
+                return;
+            }
+            int generation = ++it.generation;
+            it.task = SchedulerUtil.runGlobalLater(plugin, () -> {
+                synchronized (it) {
+                    if (generation == it.generation) {
+                        advanceIndividual(zp, uuid, it);
+                    }
+                }
+            }, disc.getDurationTicks());
         }
-        it.task = SchedulerUtil.runGlobalLater(plugin, () -> onIndividualTrackEnd(zp, uuid, it), disc.getDurationTicks());
     }
 
-    private void onIndividualTrackEnd(ZonePlayback zp, UUID uuid, IndividualTrack it) {
+    private void advanceIndividual(ZonePlayback zp, UUID uuid, IndividualTrack it) {
         // Runs under the cursor's monitor so a concurrent teardown cannot slip
         // between the guard below and the playback that follows it.
         synchronized (it) {
@@ -717,11 +956,13 @@ public class AmbientZoneManager {
             if (it.cancelled || !zp.active || zp.individual.get(uuid) != it) {
                 return;
             }
+            ++it.generation;
+            SchedulerUtil.cancelTask(it.task);
 
             CustomDisc previous = it.current;
 
             int next = it.index + 1;
-            if (next >= zp.discs.size()) {
+            if (next >= it.order.size()) {
                 if (zp.zone.isLoop()) {
                     next = 0;
                 } else {
@@ -734,14 +975,26 @@ public class AmbientZoneManager {
                 }
             }
 
+            if (next == 0 && zp.zone.isShuffle() && it.order.size() > 1) {
+                // New lap: reshuffle this player's order, without repeating the
+                // track that just played across the wrap
+                CustomDisc last = it.order.get(it.order.size() - 1);
+                Collections.shuffle(it.order);
+                if (it.order.get(0).getId().equals(last.getId())) {
+                    Collections.swap(it.order, 0, it.order.size() - 1);
+                }
+            }
+
             it.index = next;
-            it.current = zp.discs.get(next);
+            it.current = it.order.get(next);
             it.trackStartMillis = System.currentTimeMillis();
 
             // Stop the finished track (in case its .ogg outlasts the duration) and
             // play the next one to this single player.
             dispatchStopOne(uuid, previous);
-            dispatchPlayOne(uuid, it.current, volumeFor(zp.zone, uuid));
+            CustomDisc disc = it.current;
+            dispatchPlayOne(uuid, disc, volumeFor(zp.zone, uuid),
+                () -> !it.cancelled && zp.active && zp.individual.get(uuid) == it && it.current == disc);
             scheduleIndividualEnd(zp, uuid, it);
         }
     }
@@ -755,15 +1008,24 @@ public class AmbientZoneManager {
         zp.individual.clear();
     }
 
-    private void dispatchPlayOne(UUID uuid, CustomDisc disc, float volume) {
+    /**
+     * @param stillWanted re-checked when the play actually runs: on Folia it is
+     *                    queued to the player's thread, and the player may have
+     *                    left the zone by then
+     */
+    private void dispatchPlayOne(UUID uuid, CustomDisc disc, float volume, java.util.function.BooleanSupplier stillWanted) {
         Player player = Bukkit.getPlayer(uuid);
         if (player == null || !player.isOnline()) {
             return;
         }
         if (SchedulerUtil.isFolia()) {
-            SchedulerUtil.runPlayerTask(plugin, player, () -> playSound(player, disc, volume));
+            SchedulerUtil.runPlayerTask(plugin, player, () -> {
+                if (stillWanted.getAsBoolean()) {
+                    playSound(player, disc, volume, player.getLocation());
+                }
+            });
         } else {
-            playSound(player, disc, volume);
+            playSound(player, disc, volume, player.getLocation());
         }
     }
 
@@ -807,7 +1069,7 @@ public class AmbientZoneManager {
     private String findZoneFor(Location loc) {
         ZonePlayback best = null;
         for (ZonePlayback zp : playbacks.values()) {
-            if (!zp.active) {
+            if (!zp.active || zp.point) {
                 continue;
             }
             AmbientZone zone = zp.zone;
@@ -861,16 +1123,26 @@ public class AmbientZoneManager {
             }
             // Resolved per listener - each may have a personal volume
             float volume = volumeFor(zp.zone, id);
+            if (zp.point) {
+                zp.received.add(id);
+            }
             if (folia) {
-                SchedulerUtil.runPlayerTask(plugin, player, () -> playSound(player, disc, volume));
+                // Queued to the player's thread: by the time it runs, they may
+                // have left the zone or the track may have moved on
+                SchedulerUtil.runPlayerTask(plugin, player, () -> {
+                    if (zp.active && zp.current == disc && zp.listeners.contains(id)) {
+                        playSound(player, disc, volume, sourceOf(zp, player));
+                    }
+                });
             } else {
-                playSound(player, disc, volume);
+                playSound(player, disc, volume, sourceOf(zp, player));
             }
         }
     }
 
     private void stopSoundForAll(ZonePlayback zp) {
-        dispatchStop(zp.listeners, zp.current);
+        dispatchStop(zp.hearing(), zp.current);
+        zp.received.clear();
     }
 
     /**
@@ -897,10 +1169,11 @@ public class AmbientZoneManager {
     }
 
     /**
-     * Plays a disc's custom sound to a player, anchored at their current
-     * position. Must run on the player's region thread on Folia.
+     * Plays a disc's custom sound to a player from the given position - their
+     * own for ordinary zones, the zone center for a point source. Must run on
+     * the player's region thread on Folia.
      */
-    private void playSound(Player player, CustomDisc disc, float volume) {
+    private void playSound(Player player, CustomDisc disc, float volume, Location source) {
         if (!disc.hasCustomSound()) {
             return;
         }
@@ -916,13 +1189,13 @@ public class AmbientZoneManager {
         }
         try {
             CustomSoundPlayEvent deliveryEvent = new CustomSoundPlayEvent(
-                player, disc, player.getLocation(), CustomSoundPlayEvent.Source.AMBIENT_ZONE, volume);
+                player, disc, source, CustomSoundPlayEvent.Source.AMBIENT_ZONE, volume);
             plugin.getServer().getPluginManager().callEvent(deliveryEvent);
             if (deliveryEvent.isCancelled()) {
                 return; // A companion plugin delivers this sound instead
             }
 
-            player.playSound(player.getLocation(), disc.getSoundKey(), soundCategory, volume, DEFAULT_PITCH);
+            player.playSound(source, disc.getSoundKey(), soundCategory, volume, DEFAULT_PITCH);
         } catch (Exception e) {
             if (plugin.getConfigManager().isDebug()) {
                 plugin.getLogger().warning("Ambient zone failed to play '" + disc.getSoundKey()
@@ -998,6 +1271,17 @@ public class AmbientZoneManager {
             return;
         }
         UUID uuid = player.getUniqueId();
+        for (ZonePlayback zp : playbacks.values()) {
+            if (!zp.point) {
+                continue;
+            }
+            synchronized (zp) {
+                zp.listeners.remove(uuid);
+                if (zp.received.remove(uuid) && zp.current != null) {
+                    stopSound(player, zp.current);
+                }
+            }
+        }
         String zoneId = playerZone.remove(uuid);
         if (zoneId == null) {
             return;
@@ -1006,14 +1290,7 @@ public class AmbientZoneManager {
         if (zp == null) {
             return;
         }
-        if (zp.isIndividual()) {
-            stopIndividual(zp, player);
-            return;
-        }
-        zp.listeners.remove(uuid);
-        if (zp.current != null) {
-            stopSound(player, zp.current);
-        }
+        leaveZone(zp, player);
     }
 
     /**
@@ -1054,6 +1331,7 @@ public class AmbientZoneManager {
         playerZone.remove(uuid);
         for (ZonePlayback zp : playbacks.values()) {
             zp.listeners.remove(uuid);
+            zp.received.remove(uuid);
             IndividualTrack it = zp.individual.remove(uuid);
             if (it != null) {
                 cancelCursor(it);
@@ -1204,7 +1482,7 @@ public class AmbientZoneManager {
             return null;
         }
         UUID uuid = player.getUniqueId();
-        String zoneId = playerZone.get(uuid);
+        String zoneId = getZoneIdFor(player);
         if (zoneId == null) {
             return null;
         }
@@ -1259,19 +1537,16 @@ public class AmbientZoneManager {
                 return null;
             }
             synchronized (it) {
-                SchedulerUtil.cancelTask(it.task);
-                it.task = null;
+                // advanceIndividual invalidates the pending timer itself
+                advanceIndividual(zp, requester.getUniqueId(), it);
+                return it.cancelled ? null : it.current;
             }
-            onIndividualTrackEnd(zp, requester.getUniqueId(), it);
-            return it.cancelled ? null : it.current;
         }
 
         synchronized (zp) {
-            SchedulerUtil.cancelTask(zp.trackTask);
-            zp.trackTask = null;
+            advanceTrack(zp);
+            return zp.finished || !zp.active ? null : zp.current;
         }
-        onTrackEnd(zp);
-        return zp.finished ? null : zp.current;
     }
 
     /**
@@ -1280,7 +1555,28 @@ public class AmbientZoneManager {
      * @return zone id or null
      */
     public String getZoneIdFor(Player player) {
-        return player == null ? null : playerZone.get(player.getUniqueId());
+        if (player == null) {
+            return null;
+        }
+        UUID uuid = player.getUniqueId();
+        String zoneId = playerZone.get(uuid);
+        if (zoneId != null) {
+            return zoneId;
+        }
+        // Otherwise a point-source zone the player stands in; with several, the
+        // highest priority (then the lowest id, for a stable choice)
+        ZonePlayback best = null;
+        for (ZonePlayback zp : playbacks.values()) {
+            if (!zp.point || !zp.active || !zp.listeners.contains(uuid)) {
+                continue;
+            }
+            if (best == null || zp.zone.getPriority() > best.zone.getPriority()
+                    || (zp.zone.getPriority() == best.zone.getPriority()
+                        && zp.zone.getId().compareTo(best.zone.getId()) < 0)) {
+                best = zp;
+            }
+        }
+        return best == null ? null : best.zone.getId();
     }
 
     /**
@@ -1327,12 +1623,30 @@ public class AmbientZoneManager {
      * @return how many zones were restarted
      */
     public int restartInheritingZones() {
+        return restartZones(true);
+    }
+
+    /**
+     * Restarts every active zone.
+     *
+     * <p>Muting silences all zones, including those with their own volume, so
+     * mute, unmute and a volume change that lifts a mute have to restart all of
+     * them - restarting only the inheriting ones left the others playing on at
+     * full volume (mute) or silent until their next track (unmute).
+     *
+     * @return how many zones were restarted
+     */
+    public int restartAllZones() {
+        return restartZones(false);
+    }
+
+    private int restartZones(boolean inheritingOnly) {
         if (!running || !plugin.getConfigManager().isAmbientZonesEnabled()) {
             return 0;
         }
         int restarted = 0;
         for (AmbientZone zone : zones.values()) {
-            if (!zone.inheritsVolume() || !zone.isEnabled() || !isZoneActive(zone.getId())) {
+            if ((inheritingOnly && !zone.inheritsVolume()) || !zone.isEnabled() || !isZoneActive(zone.getId())) {
                 continue;
             }
             deactivateZone(zone.getId());
@@ -1379,6 +1693,12 @@ public class AmbientZoneManager {
         if (!zone.isEnabled()) {
             return "zone-idle-disabled";
         }
+        if (!zone.isSoundSourceValid()) {
+            return "zone-idle-point-needs-radius";
+        }
+        if (zone.isJukeboxBound() && !zone.isJukeboxPlaced()) {
+            return "zone-idle-jukebox-not-placed";
+        }
         if (zone.getPlaylistId() == null || zone.getPlaylistId().isEmpty()) {
             return "zone-idle-no-playlist";
         }
@@ -1400,7 +1720,7 @@ public class AmbientZoneManager {
                 break;
             case RADIUS:
             default:
-                if (zone.getRadius() <= 0) {
+                if (!(zone.getRadius() > 0)) { // also catches NaN
                     return "zone-idle-no-radius";
                 }
                 break;
@@ -1437,7 +1757,7 @@ public class AmbientZoneManager {
         if (zp == null) {
             return;
         }
-        // Under the same monitor as onTrackEnd, so a track callback already in
+        // Under the same monitor as advanceTrack, so a track callback already in
         // flight cannot start a track after we stopped the zone.
         synchronized (zp) {
             zp.active = false;

@@ -62,7 +62,8 @@ public class JukeboxBreakListener implements Listener {
      */
     private void stopPlaybackAtBlock(Block block) {
         if (plugin.getPlaybackManager().isPlaying(block.getLocation())) {
-            plugin.getPlaybackManager().stopPlayback(block.getLocation());
+            plugin.getPlaybackManager().stopPlayback(block.getLocation(),
+                de.boondocksulfur.customjukebox.api.events.DiscPlaybackStopEvent.StopReason.BLOCK_BREAK);
 
             if (plugin.getConfigManager().isDebug()) {
                 plugin.getLogger().info("Stopped playback due to jukebox destruction at " +

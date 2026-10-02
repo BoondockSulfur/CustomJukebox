@@ -3,6 +3,7 @@ package de.boondocksulfur.customjukebox.gui;
 import de.boondocksulfur.customjukebox.CustomJukebox;
 import de.boondocksulfur.customjukebox.model.CustomDisc;
 import de.boondocksulfur.customjukebox.model.DiscCategory;
+import de.boondocksulfur.customjukebox.utils.ChatInputSessions;
 import de.boondocksulfur.customjukebox.utils.AdventureUtil;
 import de.boondocksulfur.customjukebox.utils.GUIHolder;
 import de.boondocksulfur.customjukebox.utils.GuiPageUtil;
@@ -58,7 +59,7 @@ public class DiscEditorGUIv2 implements Listener {
 
     private final CustomJukebox plugin;
     private final Map<UUID, EditorContext> activeEditors = new ConcurrentHashMap<>();
-    private final Map<UUID, String> chatInputMode = new ConcurrentHashMap<>();
+    private final ChatInputSessions<String> chatInputMode = new ChatInputSessions<>();
 
     public DiscEditorGUIv2(CustomJukebox plugin) {
         this.plugin = plugin;
@@ -68,6 +69,8 @@ public class DiscEditorGUIv2 implements Listener {
      * Opens the main disc editor.
      */
     public void openEditor(Player player, CustomDisc disc) {
+        // A menu opened afresh means any earlier chat prompt was abandoned
+        plugin.cancelChatInput(player.getUniqueId());
         activeEditors.put(player.getUniqueId(), new EditorContext(disc.getId()));
         Inventory gui = createMainEditor(disc);
         player.openInventory(gui);
@@ -332,7 +335,8 @@ public class DiscEditorGUIv2 implements Listener {
                 MessageUtil.sendMessage(player, "&7Enter new &eDisplay Name &7in chat:");
                 MessageUtil.sendMessage(player, "&8Colors: &7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
                 MessageUtil.sendMessage(player, "&8Type &ccancel &8to abort");
-                chatInputMode.put(player.getUniqueId(), "displayName:" + disc.getId());
+                plugin.cancelChatInput(player.getUniqueId());
+                chatInputMode.start(player.getUniqueId(), "displayName:" + disc.getId());
                 break;
             case 11: // Author
                 player.closeInventory();
@@ -341,13 +345,15 @@ public class DiscEditorGUIv2 implements Listener {
                 // whoever opens this field first never sees that one.
                 MessageUtil.sendMessage(player, "&8Colors: &7&a-&f, &#FF5555, <gradient:#FF0000:#0000FF>text</gradient>");
                 MessageUtil.sendMessage(player, "&8Type &ccancel &8to abort");
-                chatInputMode.put(player.getUniqueId(), "author:" + disc.getId());
+                plugin.cancelChatInput(player.getUniqueId());
+                chatInputMode.start(player.getUniqueId(), "author:" + disc.getId());
                 break;
             case 12: // Sound Key
                 player.closeInventory();
                 MessageUtil.sendMessage(player, "&7Enter new &eSound Key &7in chat (format: namespace:sound_name):");
                 MessageUtil.sendMessage(player, "&8Type &ccancel &8to abort");
-                chatInputMode.put(player.getUniqueId(), "soundKey:" + disc.getId());
+                plugin.cancelChatInput(player.getUniqueId());
+                chatInputMode.start(player.getUniqueId(), "soundKey:" + disc.getId());
                 break;
             case 13: // Duration
                 openDurationSelector(player, disc.getId());
@@ -392,7 +398,8 @@ public class DiscEditorGUIv2 implements Listener {
             player.closeInventory();
             MessageUtil.sendMessage(player, "&7Enter &eDuration &7in seconds:");
             MessageUtil.sendMessage(player, "&8Type &ccancel &8to abort");
-            chatInputMode.put(player.getUniqueId(), "duration:" + discId);
+            plugin.cancelChatInput(player.getUniqueId());
+            chatInputMode.start(player.getUniqueId(), "duration:" + discId);
             return;
         }
 
@@ -536,7 +543,8 @@ public class DiscEditorGUIv2 implements Listener {
             player.closeInventory();
             MessageUtil.sendMessage(player, "&7Enter new &eCategory ID &7in chat:");
             MessageUtil.sendMessage(player, "&8Type &ccancel &8to abort");
-            chatInputMode.put(player.getUniqueId(), "newCategory:" + discId);
+            plugin.cancelChatInput(player.getUniqueId());
+            chatInputMode.start(player.getUniqueId(), "newCategory:" + discId);
             return;
         }
 
@@ -578,7 +586,8 @@ public class DiscEditorGUIv2 implements Listener {
             player.closeInventory();
             MessageUtil.sendMessage(player, "&7Enter &eCustom Model Data &7value:");
             MessageUtil.sendMessage(player, "&8Type &ccancel &8to abort");
-            chatInputMode.put(player.getUniqueId(), "modelData:" + discId);
+            plugin.cancelChatInput(player.getUniqueId());
+            chatInputMode.start(player.getUniqueId(), "modelData:" + discId);
             return;
         }
 
@@ -685,7 +694,7 @@ public class DiscEditorGUIv2 implements Listener {
 
         Player player = event.getPlayer();
         // Remove atomically so rapid consecutive messages are not processed twice
-        String mode = chatInputMode.remove(player.getUniqueId());
+        String mode = chatInputMode.take(player.getUniqueId());
 
         if (mode == null) return;
 
@@ -736,12 +745,25 @@ public class DiscEditorGUIv2 implements Listener {
 
         switch (field) {
             case "displayName":
-                plugin.getDiscManager().updateDiscField(discId, "displayName", input);
-                MessageUtil.sendWithValue(player, "&a✓ Display Name updated: &r", input);
+                // Same limits as the creation wizard
+                if (!InputValidator.isValidLength(input, InputValidator.MAX_DISPLAY_NAME_LENGTH)) {
+                    MessageUtil.sendMessage(player, InputValidator.getLengthErrorMessage("Display Name",
+                        InputValidator.MAX_DISPLAY_NAME_LENGTH));
+                } else if (plugin.getDiscManager().updateDiscField(discId, "displayName", input)) {
+                    MessageUtil.sendWithValue(player, "&a✓ Display Name updated: &r", input);
+                } else {
+                    MessageUtil.sendMessage(player, "&cDisplay Name could not be saved!");
+                }
                 break;
             case "author":
-                plugin.getDiscManager().updateDiscField(discId, "author", input);
-                MessageUtil.sendWithValue(player, "&a✓ Author updated: &f", input);
+                if (!InputValidator.isValidLength(input, InputValidator.MAX_AUTHOR_LENGTH)) {
+                    MessageUtil.sendMessage(player, InputValidator.getLengthErrorMessage("Author",
+                        InputValidator.MAX_AUTHOR_LENGTH));
+                } else if (plugin.getDiscManager().updateDiscField(discId, "author", input)) {
+                    MessageUtil.sendWithValue(player, "&a✓ Author updated: &f", input);
+                } else {
+                    MessageUtil.sendMessage(player, "&cAuthor could not be saved!");
+                }
                 break;
             case "soundKey":
                 if (!InputValidator.isValidSoundKey(input)) {
@@ -755,8 +777,9 @@ public class DiscEditorGUIv2 implements Listener {
             case "duration":
                 try {
                     int seconds = Integer.parseInt(input);
-                    if (seconds <= 0) {
-                        MessageUtil.sendMessage(player, "&cDuration must be greater than 0!");
+                    if (seconds <= 0 || seconds > InputValidator.MAX_DURATION_SECONDS) {
+                        MessageUtil.sendMessage(player, "&cDuration must be between 1 and "
+                            + InputValidator.MAX_DURATION_SECONDS + " seconds!");
                     } else {
                         plugin.getDiscManager().updateDiscField(discId, "durationTicks", seconds * 20);
                         MessageUtil.sendMessage(player, "&a✓ Duration updated: &e" + seconds + " seconds");
@@ -813,9 +836,17 @@ public class DiscEditorGUIv2 implements Listener {
         }
     }
 
+    /**
+     * Drops a pending chat prompt of this GUI.
+     * @param playerId player
+     */
+    public void cancelChatInput(UUID playerId) {
+        chatInputMode.cancel(playerId);
+    }
+
     public void cleanup(Player player) {
         activeEditors.remove(player.getUniqueId());
-        chatInputMode.remove(player.getUniqueId());
+        chatInputMode.cancel(player.getUniqueId());
     }
 
     /**

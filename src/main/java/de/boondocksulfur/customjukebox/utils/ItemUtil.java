@@ -48,6 +48,13 @@ public class ItemUtil {
         Objects.requireNonNull(NamespacedKey.fromString("customjukebox:category_id"));
 
     /**
+     * PDC key that binds a zone jukebox - the item and the placed block - to its
+     * ambient zone ID.
+     */
+    public static final NamespacedKey ZONE_JUKEBOX_KEY =
+        Objects.requireNonNull(NamespacedKey.fromString("customjukebox:zone_jukebox"));
+
+    /**
      * Returns the item with a string written into its PersistentDataContainer.
      *
      * @param item item to tag (returned unchanged if it has no meta)

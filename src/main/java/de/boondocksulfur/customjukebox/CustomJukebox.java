@@ -167,40 +167,51 @@ public class CustomJukebox extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        // Every step is isolated: one throwing must not skip the rest, least of
+        // all the final flush that writes pending config changes to disk
         // Hide progress bars before the music they describe goes away
         if (nowPlayingManager != null) {
-            nowPlayingManager.stop();
+            runShutdownStep("stop progress bars", nowPlayingManager::stop);
         }
 
         // Stop ambient zones (cancels scanner + track timers, stops zone sounds)
         if (ambientZoneManager != null) {
-            ambientZoneManager.stop();
+            runShutdownStep("stop ambient zones", ambientZoneManager::stop);
         }
 
         // Stop all active playbacks before shutdown
         if (playbackManager != null) {
-            playbackManager.stopAllPlaybacks();
+            runShutdownStep("stop playbacks", playbackManager::stopAllPlaybacks);
         }
 
         // Cancel any pending scheduler tasks to prevent async operations after disable.
         // The Bukkit scheduler API throws UnsupportedOperationException on Folia -
         // there, Folia retires the plugin's scheduled tasks itself on disable.
         if (!SchedulerUtil.isFolia()) {
-            getServer().getScheduler().cancelTasks(this);
+            runShutdownStep("cancel tasks", () -> getServer().getScheduler().cancelTasks(this));
         }
 
         // Last: make sure every queued config write reaches disk before we go
         if (configWriter != null) {
-            configWriter.shutdown();
+            runShutdownStep("flush config writes", configWriter::shutdown);
         }
 
         getLogger().info("CustomJukebox has been disabled!");
+    }
+
+    private void runShutdownStep(String name, Runnable step) {
+        try {
+            step.run();
+        } catch (Exception e) {
+            getLogger().log(java.util.logging.Level.WARNING, "Shutdown step '" + name + "' failed", e);
+        }
     }
 
     private void registerListeners() {
         jukeboxListener = new JukeboxListener(this);
         getServer().getPluginManager().registerEvents(jukeboxListener, this);
         getServer().getPluginManager().registerEvents(new JukeboxBreakListener(this), this);
+        getServer().getPluginManager().registerEvents(new ZoneJukeboxListener(this), this);
         getServer().getPluginManager().registerEvents(new DiscDropListener(this), this);
         getServer().getPluginManager().registerEvents(new ParrotDanceListener(this), this);
         getServer().getPluginManager().registerEvents(new LootGenerateListener(this), this);
@@ -284,6 +295,21 @@ public class CustomJukebox extends JavaPlugin {
         // scanner and every zone timeline with the new config.
         ambientZoneManager.reload();
         nowPlayingManager.reload();
+    }
+
+    /**
+     * Drops every pending "type it in chat" prompt of a player, across all GUIs
+     * and wizards. Called whenever a menu opens or a new prompt starts, so at
+     * most one prompt waits and a forgotten one cannot swallow later chat.
+     *
+     * @param playerId player
+     */
+    public void cancelChatInput(java.util.UUID playerId) {
+        if (adminGUI != null) adminGUI.cancelChatInput(playerId);
+        if (discEditorGUIv2 != null) discEditorGUIv2.cancelChatInput(playerId);
+        if (categoryEditorGUI != null) categoryEditorGUI.cancelChatInput(playerId);
+        if (discCreationWizard != null) discCreationWizard.cancelChatInput(playerId);
+        if (categoryCreationWizard != null) categoryCreationWizard.cancelSession(playerId);
     }
 
     public static CustomJukebox getInstance() {

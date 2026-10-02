@@ -40,11 +40,14 @@ public class DiscManager {
     private final CustomJukebox plugin;
     private final Gson gson;
     private final File discsFile;
-    private final Map<String, CustomDisc> discs;
-    private final Map<String, DiscFragment> fragments;
-    private final Map<String, DiscCategory> categories;
-    private final Map<String, DiscPlaylist> playlists;
-    private JsonObject discsConfig;
+    // Replaced as a whole on reload (volatile), never cleared and refilled: on
+    // Folia other region threads read these while a reload runs, and an
+    // emptied map in between made inserted discs play as their vanilla base
+    private volatile Map<String, CustomDisc> discs;
+    private volatile Map<String, DiscFragment> fragments;
+    private volatile Map<String, DiscCategory> categories;
+    private volatile Map<String, DiscPlaylist> playlists;
+    private volatile JsonObject discsConfig;
     /**
      * Guards edits to the {@link #discsConfig} tree and the snapshot taken for
      * saving - see the note in ConfigManager. Blocks never call out.
@@ -66,16 +69,18 @@ public class DiscManager {
         this.playlists = new ConcurrentHashMap<>();
 
         loadDiscsFile();
-        loadCategories();
-        loadPlaylists();
-        loadDiscs();
+        rebuildRegistries();
     }
 
     /**
      * Loads disc.json from plugin folder.
      * If file doesn't exist, copies default from resources.
      */
-    private void loadDiscsFile() {
+    /**
+     * @return true if disc.json was read; false if it could not be, in which
+     *         case the previous state (or an empty one on first load) is kept
+     */
+    private boolean loadDiscsFile() {
         try {
             // A queued save must land before we read the file back
             if (plugin.getConfigWriter() != null) {
@@ -106,12 +111,17 @@ public class DiscManager {
 
             // Read disc.json (explicit UTF-8 - saveDiscsFile() writes UTF-8, so
             // reading with the platform default would break on a non-UTF-8 JVM)
+            JsonObject loaded;
             try (Reader reader = new InputStreamReader(new FileInputStream(discsFile), StandardCharsets.UTF_8)) {
-                this.discsConfig = gson.fromJson(reader, JsonObject.class);
+                loaded = gson.fromJson(reader, JsonObject.class);
             }
-            if (discsConfig == null) {
-                discsConfig = new JsonObject();
+            if (loaded == null) {
+                loaded = new JsonObject();
             }
+            synchronized (configLock) {
+                this.discsConfig = loaded;
+            }
+            plugin.getConfigWriter().unblock(discsFile);
 
             boolean addedKeys;
             synchronized (configLock) {
@@ -127,7 +137,7 @@ public class DiscManager {
             }
 
             // Check and log disc.json version
-            int fileVersion = discsConfig.has("version") ? discsConfig.get("version").getAsInt() : 0;
+            int fileVersion = getInt(discsConfig, "version", 0);
             boolean versionChanged = fileVersion != DISC_CONFIG_VERSION;
             if (fileVersion == 0) {
                 plugin.getLogger().warning("disc.json has no version field - adding version " + DISC_CONFIG_VERSION);
@@ -151,14 +161,39 @@ public class DiscManager {
             if (addedKeys || versionChanged) {
                 saveDiscsFile();
             }
+            return true;
 
         } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to load disc.json", e);
-
-            // Create default config
-            this.discsConfig = new JsonObject();
-            this.discsConfig.add("discs", new JsonObject());
+            // Never write the fallback over the file - see ConfigWriter.quarantine
+            plugin.getConfigWriter().quarantine(discsFile, e);
+            if (this.discsConfig == null) {
+                JsonObject empty = new JsonObject();
+                empty.add("discs", new JsonObject());
+                this.discsConfig = empty;
+                return true; // Nothing to keep - build the (empty) registries
+            }
+            plugin.getLogger().severe("Keeping the previously loaded discs, categories and playlists.");
+            return false;
         }
+    }
+
+    /**
+     * Builds all registries from {@link #discsConfig} and swaps them in at once.
+     */
+    private void rebuildRegistries() {
+        Map<String, DiscCategory> newCategories = loadCategories();
+        Map<String, DiscPlaylist> newPlaylists = loadPlaylists();
+        Map<String, CustomDisc> newDiscs = new ConcurrentHashMap<>();
+        Map<String, DiscFragment> newFragments = new ConcurrentHashMap<>();
+        loadDiscs(newDiscs, newFragments);
+
+        this.categories = newCategories;
+        this.playlists = newPlaylists;
+        this.fragments = newFragments;
+        this.discs = newDiscs;
+
+        // Validate disc configurations
+        validateDiscs();
     }
 
     /**
@@ -189,12 +224,12 @@ public class DiscManager {
     /**
      * Loads categories from disc.json.
      */
-    private void loadCategories() {
-        categories.clear();
+    private Map<String, DiscCategory> loadCategories() {
+        Map<String, DiscCategory> categories = new ConcurrentHashMap<>();
 
         if (!discsConfig.has("categories") || !discsConfig.get("categories").isJsonObject()) {
             plugin.getLogger().info("No categories found in disc.json");
-            return;
+            return categories;
         }
 
         JsonObject categoriesSection = discsConfig.getAsJsonObject("categories");
@@ -212,17 +247,18 @@ public class DiscManager {
         }
 
         plugin.getLogger().info("Loaded " + categories.size() + " disc categories");
+        return categories;
     }
 
     /**
      * Loads playlists from disc.json.
      */
-    private void loadPlaylists() {
-        playlists.clear();
+    private Map<String, DiscPlaylist> loadPlaylists() {
+        Map<String, DiscPlaylist> playlists = new ConcurrentHashMap<>();
 
         if (!discsConfig.has("playlists") || !discsConfig.get("playlists").isJsonObject()) {
             plugin.getLogger().info("No playlists found in disc.json");
-            return;
+            return playlists;
         }
 
         JsonObject playlistsSection = discsConfig.getAsJsonObject("playlists");
@@ -239,6 +275,12 @@ public class DiscManager {
             if (playlistData.has("discs") && playlistData.get("discs").isJsonArray()) {
                 JsonArray discsArray = playlistData.getAsJsonArray("discs");
                 for (int i = 0; i < discsArray.size(); i++) {
+                    // One bad entry must not take the whole plugin start with it
+                    if (!discsArray.get(i).isJsonPrimitive()) {
+                        plugin.getLogger().warning("Skipping invalid entry #" + (i + 1)
+                            + " in playlist '" + playlistId + "' (not a disc ID)");
+                        continue;
+                    }
                     discIds.add(discsArray.get(i).getAsString());
                 }
             }
@@ -248,17 +290,16 @@ public class DiscManager {
         }
 
         plugin.getLogger().info("Loaded " + playlists.size() + " playlists");
+        return playlists;
     }
 
     /**
      * Loads all discs from disc.json.
      * Simple: Just read the JSON file and create CustomDisc objects.
      */
-    private void loadDiscs() {
-        discs.clear();
-        fragments.clear();
-
-        JsonObject discsSection = discsConfig.getAsJsonObject("discs");
+    private void loadDiscs(Map<String, CustomDisc> discs, Map<String, DiscFragment> fragments) {
+        JsonObject discsSection = discsConfig.has("discs") && discsConfig.get("discs").isJsonObject()
+            ? discsConfig.getAsJsonObject("discs") : null;
 
         if (discsSection == null || discsSection.size() == 0) {
             plugin.getLogger().warning("No discs found in disc.json!");
@@ -279,7 +320,7 @@ public class DiscManager {
 
                 // Create fragment if fragmentCount > 0
                 if (disc.hasFragments()) {
-                    createFragment(disc);
+                    fragments.put(disc.getId(), buildFragment(disc));
                 }
             }
         }
@@ -288,9 +329,6 @@ public class DiscManager {
         if (fragments.size() > 0) {
             plugin.getLogger().info("Loaded " + fragments.size() + " disc fragments!");
         }
-
-        // Validate disc configurations
-        validateDiscs();
     }
 
     /**
@@ -308,7 +346,20 @@ public class DiscManager {
             String discTypeName = getString(data, "type", "MUSIC_DISC_13");
             int customModelData = getInt(data, "customModelData", 1001);
             int durationTicks = getInt(data, "durationTicks", 0);
+            int maxDurationTicks = de.boondocksulfur.customjukebox.utils.InputValidator.MAX_DURATION_SECONDS * 20;
+            if (durationTicks < 0 || durationTicks > maxDurationTicks) {
+                plugin.getLogger().warning("Disc '" + id + "' has an invalid durationTicks (" + durationTicks
+                    + ") - treating it as unknown; allowed are 0 to " + maxDurationTicks);
+                durationTicks = 0;
+            }
             int fragmentCount = getInt(data, "fragmentCount", 0);
+            int maxFragments = de.boondocksulfur.customjukebox.utils.InputValidator.MAX_FRAGMENT_COUNT;
+            if (fragmentCount < 0 || fragmentCount > maxFragments) {
+                plugin.getLogger().warning("Disc '" + id + "' needs " + fragmentCount
+                    + " fragments, but a crafting grid holds at most " + maxFragments
+                    + " - fragments are disabled for it");
+                fragmentCount = 0;
+            }
             String description = colorize(getString(data, "description", ""));
             String category = getString(data, "category", null);
 
@@ -346,13 +397,13 @@ public class DiscManager {
      */
     private void syncFragment(CustomDisc disc) {
         if (disc.hasFragments()) {
-            createFragment(disc);
+            fragments.put(disc.getId(), buildFragment(disc));
         } else {
             fragments.remove(disc.getId());
         }
     }
 
-    private void createFragment(CustomDisc disc) {
+    private DiscFragment buildFragment(CustomDisc disc) {
         String fragmentName = colorize("&7Fragment - " + de.boondocksulfur.customjukebox.utils.AdventureUtil.stripColor(disc.getDisplayName()));
 
         // Validate CustomModelData to prevent overflow
@@ -368,9 +419,7 @@ public class DiscManager {
         // This avoids conflicts and prevents overflow issues
         int fragmentModelData = Math.min((baseModelData * 10) + 50000, Integer.MAX_VALUE - 1000);
 
-        DiscFragment fragment = new DiscFragment(disc.getId(), fragmentName,
-            fragmentModelData, Material.DISC_FRAGMENT_5);
-        fragments.put(disc.getId(), fragment);
+        return new DiscFragment(disc.getId(), fragmentName, fragmentModelData, Material.DISC_FRAGMENT_5);
     }
 
     /**
@@ -424,17 +473,21 @@ public class DiscManager {
         synchronized (configLock) {
             discsConfig.addProperty("version", DISC_CONFIG_VERSION);
             snapshot = discsConfig.deepCopy();
+            // Queued under the lock the snapshot was taken under, so an older
+            // snapshot from a concurrent save can never land after a newer one
+            plugin.getConfigWriter().save(discsFile, snapshot,
+                plugin.getConfigManager().getMaxBackups(),
+                plugin.getConfigManager().getBackupMinIntervalMillis());
         }
-        plugin.getConfigWriter().save(discsFile, snapshot,
-            plugin.getConfigManager().getMaxBackups(),
-            plugin.getConfigManager().getBackupMinIntervalMillis());
     }
 
     public void reload() {
-        loadDiscsFile();
-        loadCategories();
-        loadPlaylists();
-        loadDiscs();
+        // Held throughout, so a GUI edit cannot land in the tree being replaced
+        synchronized (configLock) {
+            if (loadDiscsFile()) {
+                rebuildRegistries();
+            }
+        }
     }
 
     public CustomDisc getDisc(String id) {
@@ -1064,20 +1117,25 @@ public class DiscManager {
         if (!discs.containsKey(id)) {
             return false;
         }
-
-        if (!discsConfig.has("discs") || !discsConfig.get("discs").isJsonObject()) {
+        if (value instanceof Integer intValue && !isValidIntField(field, intValue)) {
+            plugin.getLogger().warning("updateDiscField: " + intValue + " is out of range for '" + field + "'");
             return false;
         }
-
-        JsonObject discsSection = discsConfig.getAsJsonObject("discs");
-        if (!discsSection.has(id) || !discsSection.get(id).isJsonObject()) {
-            return false;
-        }
-
-        JsonObject discData = discsSection.getAsJsonObject(id);
 
         CustomDisc updated;
         synchronized (configLock) {
+            if (!discsConfig.has("discs") || !discsConfig.get("discs").isJsonObject()) {
+                return false;
+            }
+            JsonObject discsSection = discsConfig.getAsJsonObject("discs");
+            if (!discsSection.has(id) || !discsSection.get(id).isJsonObject()) {
+                return false;
+            }
+            JsonObject discData = discsSection.getAsJsonObject(id);
+            // Restored if the edited entry does not parse - otherwise the bad
+            // value would be saved and the disc skipped on every later start
+            JsonObject before = discData.deepCopy();
+
             // Update field
             switch (field) {
                 case "displayName":
@@ -1125,18 +1183,32 @@ public class DiscManager {
             // Rebuild just this disc from its (now updated) JSON entry, using the
             // same parse path as loading, so colorization and defaults match.
             updated = parseDiscFromJson(id, discData);
+            if (updated == null) {
+                discsSection.add(id, before);
+                plugin.getLogger().severe("Failed to re-parse disc '" + id + "' after updating '" + field
+                    + "' - change reverted");
+                return false;
+            }
+            discs.put(id, updated);
+            syncFragment(updated);
         }
-        if (updated == null) {
-            plugin.getLogger().severe("Failed to re-parse disc '" + id + "' after updating '" + field + "'");
-            return false;
-        }
-        discs.put(id, updated);
-        syncFragment(updated);
 
         saveDiscsFile();
         // A changed sound key or duration changes what zones can play
         notifyZonesDiscChanged(id);
         return true;
+    }
+
+    private boolean isValidIntField(String field, int value) {
+        return switch (field) {
+            case "durationTicks" -> value >= 0
+                && value <= de.boondocksulfur.customjukebox.utils.InputValidator.MAX_DURATION_SECONDS * 20;
+            case "fragmentCount" -> value >= 0
+                && value <= de.boondocksulfur.customjukebox.utils.InputValidator.MAX_FRAGMENT_COUNT;
+            case "customModelData" -> value >= 0
+                && value <= de.boondocksulfur.customjukebox.utils.InputValidator.MAX_CUSTOM_MODEL_DATA;
+            default -> true;
+        };
     }
 
     /**

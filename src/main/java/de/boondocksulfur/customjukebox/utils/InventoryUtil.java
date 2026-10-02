@@ -69,4 +69,24 @@ public class InventoryUtil {
             }
         }
     }
+
+    /**
+     * Puts items into a player's inventory and drops whatever does not fit at
+     * their feet, so nothing given out is lost to a full inventory.
+     *
+     * <p>Touches the player's inventory and world, so on Folia it must run on
+     * the player's own thread.
+     *
+     * @param player recipient
+     * @param items items to give
+     * @return how many items had to be dropped
+     */
+    public static int giveOrDrop(org.bukkit.entity.Player player, org.bukkit.inventory.ItemStack... items) {
+        int dropped = 0;
+        for (org.bukkit.inventory.ItemStack leftover : player.getInventory().addItem(items).values()) {
+            player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+            dropped += leftover.getAmount();
+        }
+        return dropped;
+    }
 }

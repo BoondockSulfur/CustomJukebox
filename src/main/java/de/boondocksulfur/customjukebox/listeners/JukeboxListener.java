@@ -17,6 +17,7 @@ import org.bukkit.block.Block;
 import org.bukkit.block.Jukebox;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -26,6 +27,7 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.Location;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
@@ -68,6 +70,9 @@ public class JukeboxListener implements Listener {
     private final Map<String, Long> recentDiscChanges = new ConcurrentHashMap<>();
     private static final long DISC_CHANGE_COOLDOWN_MS = 500; // 500ms cooldown between disc changes
 
+    // How far a player may walk from the jukebox while its menu is open
+    private static final double MAX_GUI_JUKEBOX_DISTANCE_SQUARED = 8.0 * 8.0;
+
     // Constants for jukebox timing - improved with more attempts
     private static final int VANILLA_SOUND_STOP_INITIAL_DELAY = 1; // Ticks
     private static final int VANILLA_SOUND_STOP_SECOND_DELAY = 5; // Ticks
@@ -92,7 +97,27 @@ public class JukeboxListener implements Listener {
         Block block = event.getClickedBlock();
         if (block == null || block.getType() != Material.JUKEBOX) return;
 
+        // Another protection plugin (Lands, Towny, PlotSquared, ...) already
+        // refused this click - neither stop the music nor open the GUI then
+        if (event.useInteractedBlock() == Event.Result.DENY) return;
+
         Player player = event.getPlayer();
+
+        // A zone jukebox is not a jukebox to put discs in: admins get the zone
+        // settings, everyone else is told what it is
+        de.boondocksulfur.customjukebox.model.AmbientZone zone =
+            plugin.getAmbientZoneManager().zoneForJukebox(block);
+        if (zone != null) {
+            event.setCancelled(true);
+            if (event.getHand() != EquipmentSlot.HAND) return;
+            if (player.hasPermission("customjukebox.zone")) {
+                plugin.getZoneEditorGUI().openEditor(player, zone);
+            } else {
+                MessageUtil.sendMessage(player, plugin.getLanguageManager()
+                    .getMessage("zone-jukebox-info", "zone", zone.getId()));
+            }
+            return;
+        }
 
         // Step 1: Check basic jukebox permission
         if (!player.hasPermission("customjukebox.use")) {
@@ -169,22 +194,25 @@ public class JukeboxListener implements Listener {
             return;
         }
 
+        // Check if this is a custom disc
+        CustomDisc disc = plugin.getDiscManager().getDiscFromItem(item);
+        if (disc == null) {
+            return; // Not a custom disc, let vanilla handle it
+        }
+
         // Check for recent disc changes to prevent race conditions
         Location loc = block.getLocation();
         String locationKey = de.boondocksulfur.customjukebox.model.JukeboxPlayback.getLocationKey(loc);
         Long lastChange = recentDiscChanges.get(locationKey);
         if (lastChange != null && (System.currentTimeMillis() - lastChange) < DISC_CHANGE_COOLDOWN_MS) {
-            // Too soon after last disc change - ignore to prevent race conditions
+            // Too soon after last disc change. Cancel, not just ignore: vanilla
+            // would otherwise insert the disc and play the base disc's sound,
+            // with no custom playback ever starting for it
+            event.setCancelled(true);
             if (plugin.getConfigManager().isDebug()) {
                 plugin.getLogger().info("Disc change too rapid - ignoring to prevent race condition");
             }
             return;
-        }
-
-        // Check if this is a custom disc
-        CustomDisc disc = plugin.getDiscManager().getDiscFromItem(item);
-        if (disc == null) {
-            return; // Not a custom disc, let vanilla handle it
         }
 
         // Mark this location as having a recent disc change
@@ -316,7 +344,7 @@ public class JukeboxListener implements Listener {
 
         // Create title and subtitle using Adventure API
         Component titleComponent = AdventureUtil.parseComponent(disc.getDisplayName());
-        Component subtitleComponent = AdventureUtil.parseComponent("§7" + disc.getAuthor());
+        Component subtitleComponent = AdventureUtil.parseComponent("&7" + disc.getAuthor());
 
         // Create actionbar message (replaces vanilla "Now Playing" message)
         String actionbarText = plugin.getLanguageManager().getMessage("playback-now-playing") + " " + disc.getDisplayName();
@@ -594,8 +622,12 @@ public class JukeboxListener implements Listener {
         // Get jukebox location from stored map
         org.bukkit.Location jukeboxLoc = playerJukeboxLocations.get(player.getUniqueId());
 
-        // Validate jukebox location
-        if (jukeboxLoc == null || jukeboxLoc.getBlock().getType() != Material.JUKEBOX) {
+        // Validate jukebox location. The menu stays open when the player walks
+        // off, so require them to still be at the jukebox: reading a block far
+        // away would load its chunk on Paper and fail outright on Folia, where
+        // it belongs to another region's thread.
+        if (jukeboxLoc == null || !isNearJukebox(player, jukeboxLoc)
+                || jukeboxLoc.getBlock().getType() != Material.JUKEBOX) {
             MessageUtil.sendMessage(player, plugin.getLanguageManager().getMessage("gui-jukebox-invalid"));
             playerJukeboxLocations.remove(player.getUniqueId());
             player.closeInventory();
@@ -655,6 +687,16 @@ public class JukeboxListener implements Listener {
         playerJukeboxLocations.remove(player.getUniqueId());
     }
 
+    private boolean isNearJukebox(Player player, Location jukeboxLoc) {
+        if (!jukeboxLoc.isWorldLoaded() || !player.getWorld().equals(jukeboxLoc.getWorld())) {
+            return false;
+        }
+        if (player.getLocation().distanceSquared(jukeboxLoc) > MAX_GUI_JUKEBOX_DISTANCE_SQUARED) {
+            return false;
+        }
+        return Bukkit.isOwnedByCurrentRegion(jukeboxLoc);
+    }
+
     /**
      * Handles clicking a disc in the GUI when opened from /cjb gui command.
      * Gives the disc to the player if they have permission.
@@ -668,7 +710,7 @@ public class JukeboxListener implements Listener {
         }
 
         // Give the disc to the player
-        player.getInventory().addItem(disc.createItemStack());
+        InventoryUtil.giveOrDrop(player, disc.createItemStack());
 
         String message = plugin.getLanguageManager().getMessage("disc-received");
         message = message.replace("{disc}", disc.getDisplayName());
@@ -753,6 +795,19 @@ public class JukeboxListener implements Listener {
                 }
             }, 1L);
         }
+    }
+
+    /**
+     * Drops playbacks of a world that is going away, see
+     * {@link de.boondocksulfur.customjukebox.manager.PlaybackManager#handleWorldUnload}.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onWorldUnload(WorldUnloadEvent event) {
+        plugin.getPlaybackManager().handleWorldUnload(event.getWorld());
+        String prefix = event.getWorld().getName() + ":";
+        recentDiscChanges.keySet().removeIf(key -> key.startsWith(prefix));
+        playerJukeboxLocations.values().removeIf(loc -> !loc.isWorldLoaded()
+            || event.getWorld().equals(loc.getWorld()));
     }
 
     /**

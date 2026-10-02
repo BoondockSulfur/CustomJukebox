@@ -11,7 +11,6 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 
@@ -19,6 +18,9 @@ import java.util.concurrent.CompletableFuture;
  * Checks for plugin updates via Modrinth API.
  */
 public class UpdateChecker {
+
+    public static final String URL_MODRINTH = "https://modrinth.com/plugin/bs-customjukebox";
+    public static final String URL_CURSEFORGE = "https://www.curseforge.com/minecraft/bukkit-plugins/bs-customjukebox";
 
     private final CustomJukebox plugin;
     private final String projectId;
@@ -47,10 +49,10 @@ public class UpdateChecker {
                 String currentVersion = plugin.getPluginMeta().getVersion();
                 String mcVersion = Bukkit.getMinecraftVersion();
 
-                // Modrinth API endpoint filtered by game version
-                String gameVersionsParam = URLEncoder.encode("[\"" + mcVersion + "\"]", StandardCharsets.UTF_8);
-                String apiUrl = "https://api.modrinth.com/v2/project/" + projectId
-                    + "/version?game_versions=" + gameVersionsParam;
+                // All versions, newest first. Not filtered by game version on
+                // the API side: a server on a version no release is tagged for
+                // yet would otherwise never hear about any update.
+                String apiUrl = "https://api.modrinth.com/v2/project/" + projectId + "/version";
 
                 URL url = java.net.URI.create(apiUrl).toURL();
                 connection = (HttpURLConnection) url.openConnection();
@@ -67,7 +69,7 @@ public class UpdateChecker {
                 }
 
                 java.io.InputStream inputStream = connection.getInputStream();
-                reader = new BufferedReader(new InputStreamReader(inputStream));
+                reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
                 StringBuilder response = new StringBuilder();
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -77,14 +79,12 @@ public class UpdateChecker {
                 // Parse JSON response
                 JsonArray versions = JsonParser.parseString(response.toString()).getAsJsonArray();
 
-                if (versions.isEmpty()) {
-                    // No versions for this game version — nothing to update to
+                JsonObject latestVersionObj = pickLatestRelease(versions, mcVersion);
+                if (latestVersionObj == null) {
+                    // No stable release at all - nothing to update to
                     future.complete(null);
                     return;
                 }
-
-                // Get the latest version (first in array)
-                JsonObject latestVersionObj = versions.get(0).getAsJsonObject();
                 latestVersion = latestVersionObj.get("version_number").getAsString();
 
                 // Get download URL
@@ -104,7 +104,8 @@ public class UpdateChecker {
                     plugin.getLogger().info("UPDATE AVAILABLE!");
                     plugin.getLogger().info("Current version: " + currentVersion);
                     plugin.getLogger().info("Latest version: " + latestVersion);
-                    plugin.getLogger().info("Download: https://modrinth.com/plugin/bs-customjukebox");
+                    plugin.getLogger().info("Modrinth: " + URL_MODRINTH);
+                    plugin.getLogger().info("CurseForge: " + URL_CURSEFORGE);
                     plugin.getLogger().info("====================================");
                 } else if (comparison > 0) {
                     // Current version is newer than latest (development build)
@@ -136,6 +137,41 @@ public class UpdateChecker {
         });
 
         return future;
+    }
+
+    /**
+     * The newest stable release for this server.
+     *
+     * <p>Betas and alphas are skipped - a server on a stable build must not be
+     * told to "update" to a pre-release. Among releases, the newest one tagged
+     * for this exact Minecraft version wins; if no release is tagged for it
+     * (a Minecraft version newer than the last tagging), the newest release
+     * overall is offered instead, since one jar covers every supported version.
+     *
+     * @param versions Modrinth versions, newest first
+     * @param mcVersion the server's Minecraft version
+     * @return the release to compare against, or null if there is none
+     */
+    private static JsonObject pickLatestRelease(JsonArray versions, String mcVersion) {
+        JsonObject newestRelease = null;
+        for (int i = 0; i < versions.size(); i++) {
+            JsonObject version = versions.get(i).getAsJsonObject();
+            if (!version.has("version_type") || !"release".equals(version.get("version_type").getAsString())) {
+                continue;
+            }
+            if (newestRelease == null) {
+                newestRelease = version;
+            }
+            JsonArray gameVersions = version.getAsJsonArray("game_versions");
+            if (gameVersions != null) {
+                for (int j = 0; j < gameVersions.size(); j++) {
+                    if (mcVersion.equals(gameVersions.get(j).getAsString())) {
+                        return version;
+                    }
+                }
+            }
+        }
+        return newestRelease;
     }
 
     /**
