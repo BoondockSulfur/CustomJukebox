@@ -27,6 +27,7 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.Location;
 import org.bukkit.inventory.EquipmentSlot;
@@ -808,6 +809,22 @@ public class JukeboxListener implements Listener {
         recentDiscChanges.keySet().removeIf(key -> key.startsWith(prefix));
         playerJukeboxLocations.values().removeIf(loc -> !loc.isWorldLoaded()
             || event.getWorld().equals(loc.getWorld()));
+    }
+
+    /**
+     * Respawning gives the player a new entity on the client, which ends a zone
+     * sound attached to the old one. The zone is re-sent once the respawn has
+     * reached the client; the scanner alone would not notice, because the
+     * player may still be in the same zone.
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+        SchedulerUtil.runPlayerTaskLater(plugin, player, () -> {
+            if (player.isOnline()) {
+                plugin.getAmbientZoneManager().resumeSoundFor(player);
+            }
+        }, 5L);
     }
 
     /**

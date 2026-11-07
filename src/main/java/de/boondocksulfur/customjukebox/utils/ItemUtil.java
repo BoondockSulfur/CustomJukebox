@@ -54,6 +54,10 @@ public class ItemUtil {
     public static final NamespacedKey ZONE_JUKEBOX_KEY =
         Objects.requireNonNull(NamespacedKey.fromString("customjukebox:zone_jukebox"));
 
+    /** PDC key on a zone jukebox item: the zone's jukebox token at the time it was handed out. */
+    public static final NamespacedKey ZONE_JUKEBOX_TOKEN_KEY =
+        Objects.requireNonNull(NamespacedKey.fromString("customjukebox:zone_jukebox_token"));
+
     /**
      * Returns the item with a string written into its PersistentDataContainer.
      *

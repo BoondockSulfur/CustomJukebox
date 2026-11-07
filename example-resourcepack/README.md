@@ -142,6 +142,9 @@ It applies wherever that sound plays, in a jukebox as well as in a zone.
 - `durationTicks` — song length in ticks, **20 ticks = 1 second** (3:34 → 214 s → 4280).
   Needed for playlists, ambient zones and the progress bar; a disc without it is
   skipped in zones
+- `mono` — optional, `true` if the `.ogg` is mono. Only mono sounds fade with
+  distance in Minecraft, so point-source zones let those fade out and stop
+  stereo ones when the player leaves
 - `customModelData` — only needed if you want a custom texture (Step 6). Give
   every disc its own number
 - `type` — any vanilla music disc material

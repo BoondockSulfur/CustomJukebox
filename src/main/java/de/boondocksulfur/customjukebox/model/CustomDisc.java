@@ -28,10 +28,19 @@ public class CustomDisc {
     private final int fragmentCount;         // How many fragments needed to craft this disc (0 = no fragments)
     private final String description;        // Optional description for GUI/tooltips
     private final String category;           // Optional category ID for organization
+    private final boolean mono;              // Sound file is mono, so the client fades it with distance
 
     public CustomDisc(String id, String displayName, String author, List<String> lore,
                      Material discType, int customModelData, String soundKey,
                      int durationTicks, int fragmentCount, String description, String category) {
+        this(id, displayName, author, lore, discType, customModelData, soundKey,
+            durationTicks, fragmentCount, description, category, false);
+    }
+
+    public CustomDisc(String id, String displayName, String author, List<String> lore,
+                     Material discType, int customModelData, String soundKey,
+                     int durationTicks, int fragmentCount, String description, String category,
+                     boolean mono) {
         // Validate required fields
         if (id == null || id.trim().isEmpty()) {
             throw new IllegalArgumentException("Disc ID cannot be null or empty");
@@ -67,6 +76,7 @@ public class CustomDisc {
         // for every disc, and silently undid the category detach performed by
         // DiscManager#deleteCategory.
         this.category = (category != null && !category.isEmpty()) ? category : null;
+        this.mono = mono;
     }
 
     public String getId() {
@@ -115,6 +125,15 @@ public class CustomDisc {
 
     public String getCategory() {
         return category;
+    }
+
+    /**
+     * Whether the sound file is mono. Minecraft only places mono sounds in the
+     * world; a stereo one plays at full volume wherever the listener is.
+     * Comes from {@code "mono": true} in disc.json, unknown counts as stereo.
+     */
+    public boolean isMono() {
+        return mono;
     }
 
     public boolean hasCategory() {

@@ -301,6 +301,7 @@ they cannot play produced audio. This plugin makes the opposite trade.
 | `lore` | array | Lore lines (with `&` color codes) | ❌ No |
 | `description` | string | Short description | ❌ No |
 | `category` | string | Category ID for organization | ❌ No (Since 1.3.0) |
+| `mono` | boolean | Sound file is mono: fades out of point-source zones instead of stopping | ❌ No (Default: false, since 3.7.1) |
 
 ---
 
@@ -430,12 +431,12 @@ By default a zone covers the **full height** (any Y): a radius zone is a vertica
 
 `/cjb zone source <id> <player|point>` chooses where the music comes from:
 
-- **`player`** (default): the music plays at each listener's own position — the same loudness everywhere inside the zone, and it stops when the player leaves. Existing zones keep this behaviour.
-- **`point`**: the music plays from the **zone center, like a jukebox standing there**. It gets quieter with distance and is **not cut off when you leave** — it fades out instead. The playlist keeps running whether anyone is there or not.
+- **`player`** (default): the music is attached to each listener and moves with them — the same loudness everywhere inside the zone, mono or stereo, and it stops when the player leaves. Existing zones keep this behaviour.
+- **`point`**: the music plays from the **zone center, like a jukebox standing there**. A **mono** track gets quieter with distance and is **not cut off when you leave** — it fades out instead. A **stereo** track can't fade (see below), so it stops when you leave, as in a `player` zone. The playlist keeps running whether anyone is there or not.
 
 A point source needs a center, so it only works for **radius zones**, and it is always played `synced` (everyone hears the same jukebox). Point zones overlap like jukeboxes do: they don't take part in the priority rule, and a point zone plays alongside an ordinary zone the player is in.
 
-The zone **radius** decides who receives a track when it starts; the **fade distance** comes from the volume, as with any Minecraft sound: about **16 blocks up to volume 1**, and **16 × volume** above that. For a shorter fade (e.g. 10 blocks), set `attenuation_distance` for the sound in your resource pack's `sounds.json` (see the pack guide in `example-resourcepack/`).
+Minecraft only places **mono** sounds in the world; a stereo file plays at full volume wherever the listener is. The plugin can't see the audio files, so mark mono tracks with `"mono": true` in `disc.json` — the [pack generator](https://jukebox.tools.boondocksulfur.de) does that automatically. Without the field a track counts as stereo. The zone **radius** decides who receives a track when it starts (for mono tracks, only players within the fade distance of the center); for mono tracks the **fade distance** comes from the volume, as with any Minecraft sound: about **16 blocks up to volume 1**, and **16 × volume** above that. For a shorter fade (e.g. 10 blocks), set `attenuation_distance` for the sound in your resource pack's `sounds.json` (see the pack guide in `example-resourcepack/`).
 
 ```bash
 /cjb zone create campfire             # at the spot the music should come from
@@ -452,10 +453,10 @@ Instead of setting the center by command, a zone can play from a **jukebox block
 /cjb zone jukebox campfire            # gives you the zone's jukebox (creates the zone if needed)
 ```
 
-- **Placing** it turns the zone into a point-source radius zone centered on the block — the music comes out of that jukebox and fades with distance. Note particles show while it plays.
+- **Placing** it turns the zone into a point-source radius zone centered on the block — the music comes out of that jukebox. Note particles show while it plays. An existing zone keeps playing as before until the jukebox is actually placed.
 - **Right-click** (with `customjukebox.zone`) opens the zone editor; for everyone else it just says which zone it plays. Discs can't be put into it.
 - **Breaking** it drops the bound jukebox again and **pauses the zone** until it is placed somewhere else — that's how you move it. Only whoever placed it or someone with `customjukebox.zone` can break it, and region protection (WorldGuard etc.) applies as for any block. Explosions leave it standing.
-- There is **one jukebox per zone**. If one disappeared without being broken (e.g. removed with WorldEdit), `/cjb zone jukebox <id> release` frees the zone for a new one; `/cjb zone jukebox <id> unbind` turns it back into an ordinary zone.
+- There is **one jukebox per zone**. If one disappeared without being broken (e.g. removed with WorldEdit), `/cjb zone jukebox <id> release` frees the zone for a new one; `/cjb zone jukebox <id> unbind` turns it back into an ordinary zone. If the zone existed before its jukebox (e.g. a cuboid zone), unbinding restores its previous area and sound source. `release` and `unbind` only work on zones that have a jukebox. After `unbind`, jukebox items handed out earlier no longer work for the zone.
 
 ### Commands
 
@@ -480,7 +481,7 @@ All under permission `customjukebox.zone` (default: op).
 /cjb zone loop <id> <true|false>      # Loop the whole playlist (default true)
 /cjb zone playback <id> <synced|individual>  # Shared timeline vs per-player full songs
 /cjb zone sync <id> <immediate|next_track>   # (synced only) how late arrivals join
-/cjb zone source <id> <player|point>  # player = follows the listener (default); point = from the center, fades with distance
+/cjb zone source <id> <player|point>  # player = follows the listener (default); point = from the center
 /cjb zone jukebox <id> [release|unbind]  # Get the zone's jukebox block to place as its sound source
 /cjb zone volume <id> <inherit|0-4>   # Volume = audible radius (inherit = global)
 /cjb zone priority <id> <number>      # Overlapping zones: highest priority wins

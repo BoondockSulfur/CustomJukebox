@@ -68,8 +68,9 @@ public class AmbientZone {
         /** At each listener's own position: the same loudness everywhere in the
          *  zone, stopped when the player leaves. The default. */
         PLAYER,
-        /** From the zone's center, like a jukebox standing there: quieter with
-         *  distance, and not stopped on leaving - it fades out instead. Only for
+        /** From the zone's center, like a jukebox standing there: a mono track
+         *  fades with distance and is not stopped on leaving, a stereo track
+         *  stops like in a player zone. Only for
          *  {@link ZoneType#RADIUS} zones, and always played {@link PlaybackMode#SYNCED}. */
         POINT
     }
@@ -115,6 +116,18 @@ public class AmbientZone {
     private volatile boolean jukeboxPlaced;
     private volatile int jukeboxX, jukeboxY, jukeboxZ;
     private volatile String jukeboxOwner = "";
+    // Identifies the items handed out for this zone; a new token voids all older ones
+    private volatile String jukeboxToken = "";
+    // What an existing zone looked like before its jukebox was first placed
+    private volatile Shape shapeBeforeJukebox;
+
+    /**
+     * Area and sound source of a zone, kept when placing a jukebox turns an
+     * existing zone into a point-source radius zone, so unbinding can undo it.
+     */
+    public record Shape(ZoneType type, String world, double centerX, double centerY, double centerZ,
+                        SoundSource source) {
+    }
 
     public AmbientZone(String id) {
         this.id = id;
@@ -150,7 +163,87 @@ public class AmbientZone {
         this.jukeboxBound = jukeboxBound;
         if (!jukeboxBound) {
             this.jukeboxPlaced = false;
+            this.jukeboxToken = "";
+            this.shapeBeforeJukebox = null;
         }
+    }
+
+    /** @return the zone's area and source before its jukebox was placed, or null */
+    public Shape getShapeBeforeJukebox() {
+        return shapeBeforeJukebox;
+    }
+
+    public void setShapeBeforeJukebox(Shape shape) {
+        this.shapeBeforeJukebox = shape;
+    }
+
+    /**
+     * Keeps the current area and source before a jukebox is placed for the
+     * first time. A zone that is already bound only moves its jukebox, so the
+     * original shape is not overwritten.
+     * @return true if the shape was kept now
+     */
+    public boolean rememberShapeBeforeJukebox() {
+        if (jukeboxBound || shapeBeforeJukebox != null) {
+            return false;
+        }
+        shapeBeforeJukebox = new Shape(type, world, centerX, centerY, centerZ, soundSource);
+        return true;
+    }
+
+    /**
+     * Turns the zone back into an ordinary zone and, if it existed before its
+     * jukebox, restores the area and source it had then.
+     * @return true if a previous shape was restored
+     */
+    public boolean unbindJukebox() {
+        Shape shape = shapeBeforeJukebox;
+        setJukeboxBound(false);
+        if (shape == null) {
+            return false;
+        }
+        setType(shape.type());
+        setWorld(shape.world());
+        setCenter(shape.centerX(), shape.centerY(), shape.centerZ());
+        setSoundSource(shape.source());
+        return true;
+    }
+
+    /**
+     * @return token carried by this zone's jukebox items, or an empty string
+     */
+    public String getJukeboxToken() {
+        return jukeboxToken;
+    }
+
+    public void setJukeboxToken(String jukeboxToken) {
+        this.jukeboxToken = jukeboxToken != null ? jukeboxToken : "";
+    }
+
+    /**
+     * Returns the token for new jukebox items, creating one if the zone has none.
+     * @return the zone's jukebox token
+     */
+    public String issueJukeboxToken() {
+        if (jukeboxToken.isEmpty()) {
+            jukeboxToken = java.util.UUID.randomUUID().toString();
+        }
+        return jukeboxToken;
+    }
+
+    /**
+     * Whether a jukebox item carrying this token may be placed for the zone.
+     * Items from before an unbind, or from a deleted zone of the same name,
+     * carry a token the zone no longer knows. Items without a token predate
+     * tokens and only fit a zone that is bound but never got one.
+     * @param token token from the item, may be null or empty
+     * @return true if the item belongs to this zone
+     */
+    public boolean acceptsJukeboxToken(String token) {
+        if (token == null || token.isEmpty()) {
+            return jukeboxBound && jukeboxToken.isEmpty();
+        }
+        return token.equals(jukeboxToken);
     }
 
     /**

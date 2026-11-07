@@ -114,13 +114,17 @@ public class DiscCraftListener implements Listener {
                 player.setItemOnCursor(result);
             }
             case SHIFT_LEFT, SHIFT_RIGHT -> {
-                // Like vanilla: craft as many as the grid and free slots allow
-                int crafted = 0;
-                while (disc != null && crafted < MAX_SHIFT_CRAFTS && player.getInventory().firstEmpty() >= 0) {
-                    consumeIngredients(inventory);
+                // Like vanilla: craft as many as the grid and free slots allow.
+                // Discs do not stack, so every disc needs an empty slot. The
+                // grid is written once - each write re-evaluates the recipe.
+                int crafts = Math.min(MAX_SHIFT_CRAFTS,
+                    Math.min(smallestStack(inventory.getMatrix()), emptySlots(player)));
+                if (crafts <= 0) {
+                    return;
+                }
+                consumeIngredients(inventory, crafts);
+                for (int i = 0; i < crafts; i++) {
                     player.getInventory().addItem(disc.createItemStack());
-                    crafted++;
-                    disc = matchRecipe(inventory.getMatrix());
                 }
             }
             case SWAP_OFFHAND -> {
@@ -154,25 +158,50 @@ public class DiscCraftListener implements Listener {
         player.updateInventory();
     }
 
-    /**
-     * Uses up one fragment from every occupied slot. Setting the grid makes the
-     * server re-evaluate it, which fires {@link PrepareItemCraftEvent} again and
-     * refreshes (or clears) the result.
-     */
     private void consumeIngredients(CraftingInventory inventory) {
+        consumeIngredients(inventory, 1);
+    }
+
+    /**
+     * Uses up {@code count} fragments from every occupied slot. Setting the grid
+     * makes the server re-evaluate it, which fires {@link PrepareItemCraftEvent}
+     * again and refreshes (or clears) the result.
+     */
+    private void consumeIngredients(CraftingInventory inventory, int count) {
         ItemStack[] matrix = inventory.getMatrix();
         for (int i = 0; i < matrix.length; i++) {
             ItemStack item = matrix[i];
             if (item == null || item.getType() == Material.AIR) {
                 continue;
             }
-            if (item.getAmount() <= 1) {
+            if (item.getAmount() <= count) {
                 matrix[i] = null;
             } else {
-                item.setAmount(item.getAmount() - 1);
+                item.setAmount(item.getAmount() - count);
             }
         }
         inventory.setMatrix(matrix);
+    }
+
+    /** Smallest stack among the occupied grid slots: how often the recipe fits. */
+    private int smallestStack(ItemStack[] matrix) {
+        int smallest = Integer.MAX_VALUE;
+        for (ItemStack item : matrix) {
+            if (item != null && item.getType() != Material.AIR) {
+                smallest = Math.min(smallest, item.getAmount());
+            }
+        }
+        return smallest == Integer.MAX_VALUE ? 0 : smallest;
+    }
+
+    private int emptySlots(Player player) {
+        int empty = 0;
+        for (ItemStack item : player.getInventory().getStorageContents()) {
+            if (item == null || item.getType() == Material.AIR) {
+                empty++;
+            }
+        }
+        return empty;
     }
 
     private boolean containsFragment(ItemStack[] matrix) {

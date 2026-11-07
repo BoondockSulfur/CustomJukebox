@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.7.1] - 2026-11-07
+
+### Fixed
+- Point-source zones: stereo tracks now stop when leaving the zone (Minecraft only fades mono sounds); mark mono tracks with `"mono": true` in `disc.json` to keep the fade-out. Playback also resumes after changing worlds.
+- Zone jukebox items stop working after `unbind`; running `/cjb zone jukebox` on an existing zone no longer pauses it, and `unbind` restores the zone's previous area. `release` no longer pauses zones without a jukebox.
+- Ordinary zones attach their sound to the player, so mono tracks stay equally loud across the zone; zone music comes back after respawning.
+- Zones resume when a loop or restart is cancelled before it starts.
+- Favourites and shift-crafting fragments are more reliable.
+
+---
+
 ## [3.7.0] - 2026-10-02
 
 ### Added

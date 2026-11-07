@@ -362,6 +362,8 @@ public class DiscManager {
             }
             String description = colorize(getString(data, "description", ""));
             String category = getString(data, "category", null);
+            boolean mono = data.has("mono") && data.get("mono").isJsonPrimitive()
+                && data.getAsJsonPrimitive("mono").isBoolean() && data.get("mono").getAsBoolean();
 
             // Parse lore
             List<String> lore = new ArrayList<>();
@@ -375,7 +377,7 @@ public class DiscManager {
             Material discType = Material.valueOf(discTypeName);
 
             return new CustomDisc(id, displayName, author, lore, discType,
-                customModelData, soundKey, durationTicks, fragmentCount, description, category);
+                customModelData, soundKey, durationTicks, fragmentCount, description, category, mono);
 
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to parse disc '" + id + "': " + e.getMessage());
@@ -1226,6 +1228,9 @@ public class DiscManager {
         if (disc.getCategory() != null) {
             discData.addProperty("category", disc.getCategory());
         }
+        if (disc.isMono()) {
+            discData.addProperty("mono", true);
+        }
 
         if (disc.getLore() != null && !disc.getLore().isEmpty()) {
             JsonArray loreArray = new JsonArray();
@@ -1344,7 +1349,7 @@ public class DiscManager {
                     discs.put(disc.getId(), new CustomDisc(disc.getId(), disc.getDisplayName(),
                         disc.getAuthor(), disc.getLore(), disc.getDiscType(), disc.getCustomModelData(),
                         disc.getSoundKey(), disc.getDurationTicks(), disc.getFragmentCount(),
-                        disc.getDescription(), null));
+                        disc.getDescription(), null, disc.isMono()));
                 }
             }
 

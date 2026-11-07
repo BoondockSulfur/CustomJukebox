@@ -167,8 +167,9 @@ public class ZoneEditorGUI implements Listener {
         sourceLore.add("§7player §8- §ffollows the listener, same loudness");
         sourceLore.add("§8  everywhere, stops when leaving the zone");
         sourceLore.add("§7point §8- §fplays from the zone center like a");
-        sourceLore.add("§8  jukebox: fades with distance, not cut off");
-        sourceLore.add("§8  when leaving §7(radius zones only, always synced)");
+        sourceLore.add("§8  jukebox: mono fades with distance,");
+        sourceLore.add("§8  stereo stops when leaving");
+        sourceLore.add("§7  (radius zones only, always synced)");
         sourceLore.add("§7Current: §f" + (zone.isPointSource() ? "point" : "player"));
         sourceLore.add("§8Changing this restarts the zone's playlist.");
         sourceLore.add("§eClick to toggle");

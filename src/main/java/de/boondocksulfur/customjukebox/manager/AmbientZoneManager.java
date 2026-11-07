@@ -54,6 +54,8 @@ public class AmbientZoneManager {
     private static final int ZONES_CONFIG_VERSION = 1;
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
     private static final float DEFAULT_PITCH = 1.0f;
+    /** How far a mono sound at volume 1.0 or below carries on the client. */
+    private static final double POINT_AUDIBLE_BLOCKS = 16.0;
     private static final int DEFAULT_SCAN_INTERVAL = 20; // ticks (1s)
     private static final int MIN_SCAN_INTERVAL = 5;
     private static final int MAX_SCAN_INTERVAL = 200;
@@ -101,10 +103,10 @@ public class AmbientZoneManager {
         final Set<UUID> listeners = ConcurrentHashMap.newKeySet();
         /**
          * Point-source zones only: everyone who was sent the current track. A
-         * player who walks out keeps hearing it fade away, so they leave the
-         * listener set but stay in here - to be stopped at the next track
-         * boundary, and so that walking back in does not start the track a
-         * second time over the one still playing.
+         * player who walks away from a mono track keeps hearing it fade, so
+         * they leave the listener set but stay in here - to be stopped at the
+         * next track boundary, and so that walking back in does not start the
+         * track a second time. A stereo track is stopped on leaving instead.
          */
         final Set<UUID> received = ConcurrentHashMap.newKeySet();
         /** Captured at start: the source is part of the signature, so a change restarts the timeline. */
@@ -309,16 +311,7 @@ public class AmbientZoneManager {
         zone.setEnabled(getBool(data, "enabled", true));
         zone.setWorld(getStr(data, "world", "world"));
 
-        String typeStr = getStr(data, "type", "radius");
-        if ("worldguard".equalsIgnoreCase(typeStr)) {
-            zone.setType(AmbientZone.ZoneType.WORLDGUARD);
-        } else if ("cuboid".equalsIgnoreCase(typeStr)) {
-            zone.setType(AmbientZone.ZoneType.CUBOID);
-        } else if ("global".equalsIgnoreCase(typeStr) || "radio".equalsIgnoreCase(typeStr)) {
-            zone.setType(AmbientZone.ZoneType.GLOBAL);
-        } else {
-            zone.setType(AmbientZone.ZoneType.RADIUS);
-        }
+        zone.setType(parseType(getStr(data, "type", "radius")));
 
         if (data.has("center") && data.get("center").isJsonObject()) {
             JsonObject center = data.getAsJsonObject("center");
@@ -362,21 +355,46 @@ public class AmbientZoneManager {
             if (!getBool(jukebox, "placed", false)) {
                 zone.removeJukebox();
             }
+            if (jukebox.has("previous") && jukebox.get("previous").isJsonObject()) {
+                JsonObject prev = jukebox.getAsJsonObject("previous");
+                JsonObject center = prev.has("center") && prev.get("center").isJsonObject()
+                    ? prev.getAsJsonObject("center") : new JsonObject();
+                zone.setShapeBeforeJukebox(new AmbientZone.Shape(
+                    parseType(getStr(prev, "type", "radius")), getStr(prev, "world", zone.getWorld()),
+                    getDbl(center, "x", 0), getDbl(center, "y", 64), getDbl(center, "z", 0),
+                    "point".equalsIgnoreCase(getStr(prev, "source", "player"))
+                        ? AmbientZone.SoundSource.POINT : AmbientZone.SoundSource.PLAYER));
+            }
         }
+        zone.setJukeboxToken(getStr(data, "jukeboxToken", ""));
         return zone;
+    }
+
+    private static AmbientZone.ZoneType parseType(String typeStr) {
+        if ("worldguard".equalsIgnoreCase(typeStr)) {
+            return AmbientZone.ZoneType.WORLDGUARD;
+        } else if ("cuboid".equalsIgnoreCase(typeStr)) {
+            return AmbientZone.ZoneType.CUBOID;
+        } else if ("global".equalsIgnoreCase(typeStr) || "radio".equalsIgnoreCase(typeStr)) {
+            return AmbientZone.ZoneType.GLOBAL;
+        }
+        return AmbientZone.ZoneType.RADIUS;
+    }
+
+    private static String typeName(AmbientZone.ZoneType type) {
+        return switch (type) {
+            case WORLDGUARD -> "worldguard";
+            case CUBOID -> "cuboid";
+            case GLOBAL -> "global";
+            default -> "radius";
+        };
     }
 
     private JsonObject serializeZone(AmbientZone zone) {
         JsonObject data = new JsonObject();
         data.addProperty("enabled", zone.isEnabled());
         data.addProperty("world", zone.getWorld());
-        String typeStr = switch (zone.getType()) {
-            case WORLDGUARD -> "worldguard";
-            case CUBOID -> "cuboid";
-            case GLOBAL -> "global";
-            default -> "radius";
-        };
-        data.addProperty("type", typeStr);
+        data.addProperty("type", typeName(zone.getType()));
 
         JsonObject center = new JsonObject();
         center.addProperty("x", zone.getCenterX());
@@ -408,7 +426,23 @@ public class AmbientZoneManager {
             JsonObject jukebox = corner(zone.getJukeboxX(), zone.getJukeboxY(), zone.getJukeboxZ());
             jukebox.addProperty("placed", zone.isJukeboxPlaced());
             jukebox.addProperty("owner", zone.getJukeboxOwner());
+            AmbientZone.Shape prev = zone.getShapeBeforeJukebox();
+            if (prev != null) {
+                JsonObject previous = new JsonObject();
+                previous.addProperty("type", typeName(prev.type()));
+                previous.addProperty("world", prev.world());
+                JsonObject prevCenter = new JsonObject();
+                prevCenter.addProperty("x", prev.centerX());
+                prevCenter.addProperty("y", prev.centerY());
+                prevCenter.addProperty("z", prev.centerZ());
+                previous.add("center", prevCenter);
+                previous.addProperty("source", prev.source() == AmbientZone.SoundSource.POINT ? "point" : "player");
+                jukebox.add("previous", previous);
+            }
             data.add("jukebox", jukebox);
+        }
+        if (!zone.getJukeboxToken().isEmpty()) {
+            data.addProperty("jukeboxToken", zone.getJukeboxToken());
         }
         return data;
     }
@@ -776,8 +810,9 @@ public class AmbientZoneManager {
     }
 
     /**
-     * Joins and leaves point-source zones. Leaving never stops the sound - it
-     * fades with distance on the client, like walking away from a jukebox.
+     * Joins and leaves point-source zones. A mono track is not stopped on
+     * leaving - it fades with distance on the client, like walking away from a
+     * jukebox. A stereo track does not fade, so it stops like an ordinary zone.
      */
     private void evaluatePointZones(Player player, Location loc) {
         UUID uuid = player.getUniqueId();
@@ -785,10 +820,16 @@ public class AmbientZoneManager {
             if (!zp.point) {
                 continue;
             }
-            boolean inside = zp.zone.matchesWorld(loc) && zp.zone.withinRadius(loc);
+            boolean sameWorld = zp.zone.matchesWorld(loc);
+            boolean inside = reaches(zp, loc, uuid);
             synchronized (zp) {
                 if (!zp.active) {
                     continue;
+                }
+                if (!sameWorld) {
+                    // A world change stops every sound on the client, so the
+                    // track has to be sent again when they come back
+                    zp.received.remove(uuid);
                 }
                 boolean listening = zp.listeners.contains(uuid);
                 if (inside && !listening) {
@@ -804,14 +845,60 @@ public class AmbientZoneManager {
                     }
                 } else if (!inside && listening) {
                     zp.listeners.remove(uuid);
+                    // Stereo plays at full volume wherever the listener is
+                    if (zp.current != null && !zp.current.isMono() && zp.received.remove(uuid)) {
+                        stopSound(player, zp.current);
+                    }
                 }
             }
         }
     }
 
     /**
+     * Whether a point-source zone reaches a location: inside its radius, and
+     * for a mono track also within earshot. The client plays a mono sound up
+     * to 16 blocks, or 16 times the volume above 1.0, from its source - beyond
+     * that a player inside the radius would count as listening without hearing
+     * anything. Stereo does not fade, so for it the radius alone decides.
+     */
+    private boolean reaches(ZonePlayback zp, Location loc, UUID uuid) {
+        if (!zp.zone.matchesWorld(loc) || !zp.zone.withinRadius(loc)) {
+            return false;
+        }
+        CustomDisc track = zp.current;
+        if (track == null || !track.isMono()) {
+            return true;
+        }
+        double range = POINT_AUDIBLE_BLOCKS * Math.max(1f, volumeFor(zp.zone, uuid));
+        double dx = loc.getX() - zp.zone.getCenterX();
+        double dy = loc.getY() - zp.zone.getCenterY();
+        double dz = loc.getZ() - zp.zone.getCenterZ();
+        return dx * dx + dy * dy + dz * dz <= range * range;
+    }
+
+    /** Whether the player is attached to any point-source zone. */
+    private boolean inPointZone(UUID uuid) {
+        for (ZonePlayback zp : playbacks.values()) {
+            if (zp.point && zp.active && zp.listeners.contains(uuid)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a point-source zone would pick the player up at this location. */
+    private boolean pointZoneCovers(Location loc, UUID uuid) {
+        for (ZonePlayback zp : playbacks.values()) {
+            if (zp.point && zp.active && reaches(zp, loc, uuid)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Where a zone's sound is played for a player: the zone center for a point
-     * source, otherwise the player's own position.
+     * source, otherwise null - the sound is then attached to the player.
      */
     private Location sourceOf(ZonePlayback zp, Player player) {
         if (zp.point) {
@@ -820,7 +907,7 @@ public class AmbientZoneManager {
                 return new Location(world, zp.zone.getCenterX(), zp.zone.getCenterY(), zp.zone.getCenterZ());
             }
         }
-        return player.getLocation();
+        return null; // Bound to the player, see playSound
     }
 
     /**
@@ -863,7 +950,7 @@ public class AmbientZoneManager {
                     // it from track 0 for everyone currently inside.
                     restartTimeline(zp);
                 } else if (zp.zone.getSyncMode() == AmbientZone.SyncMode.IMMEDIATE && zp.current != null) {
-                    playSound(player, zp.current, volumeFor(zp.zone, uuid), player.getLocation());
+                    playSound(player, zp.current, volumeFor(zp.zone, uuid), null);
                 }
                 // NEXT_TRACK: the player is now a listener and will be included
                 // when the track next changes - no sound yet.
@@ -897,7 +984,7 @@ public class AmbientZoneManager {
         if (previous != null) {
             cancelCursor(previous);
         }
-        playSound(player, it.current, volumeFor(zp.zone, uuid), player.getLocation());
+        playSound(player, it.current, volumeFor(zp.zone, uuid), null);
         scheduleIndividualEnd(zp, uuid, it);
     }
 
@@ -1021,11 +1108,11 @@ public class AmbientZoneManager {
         if (SchedulerUtil.isFolia()) {
             SchedulerUtil.runPlayerTask(plugin, player, () -> {
                 if (stillWanted.getAsBoolean()) {
-                    playSound(player, disc, volume, player.getLocation());
+                    playSound(player, disc, volume, null);
                 }
             });
         } else {
-            playSound(player, disc, volume, player.getLocation());
+            playSound(player, disc, volume, null);
         }
     }
 
@@ -1124,13 +1211,18 @@ public class AmbientZoneManager {
             // Resolved per listener - each may have a personal volume
             float volume = volumeFor(zp.zone, id);
             if (zp.point) {
+                // Left the world since the last scan: the source is not there
+                if (!folia && !zp.zone.matchesWorld(player.getLocation())) {
+                    continue;
+                }
                 zp.received.add(id);
             }
             if (folia) {
                 // Queued to the player's thread: by the time it runs, they may
                 // have left the zone or the track may have moved on
                 SchedulerUtil.runPlayerTask(plugin, player, () -> {
-                    if (zp.active && zp.current == disc && zp.listeners.contains(id)) {
+                    if (zp.active && zp.current == disc && zp.listeners.contains(id)
+                            && (!zp.point || zp.zone.matchesWorld(player.getLocation()))) {
                         playSound(player, disc, volume, sourceOf(zp, player));
                     }
                 });
@@ -1169,9 +1261,8 @@ public class AmbientZoneManager {
     }
 
     /**
-     * Plays a disc's custom sound to a player from the given position - their
-     * own for ordinary zones, the zone center for a point source. Must run on
-     * the player's region thread on Folia.
+     * Plays a zone track for one player: from {@code source}, or attached to
+     * the player when it is null. Must run on the player's region thread on Folia.
      */
     private void playSound(Player player, CustomDisc disc, float volume, Location source) {
         if (!disc.hasCustomSound()) {
@@ -1189,13 +1280,20 @@ public class AmbientZoneManager {
         }
         try {
             CustomSoundPlayEvent deliveryEvent = new CustomSoundPlayEvent(
-                player, disc, source, CustomSoundPlayEvent.Source.AMBIENT_ZONE, volume);
+                player, disc, source != null ? source : player.getLocation(),
+                CustomSoundPlayEvent.Source.AMBIENT_ZONE, volume);
             plugin.getServer().getPluginManager().callEvent(deliveryEvent);
             if (deliveryEvent.isCancelled()) {
                 return; // A companion plugin delivers this sound instead
             }
 
-            player.playSound(source, disc.getSoundKey(), soundCategory, volume, DEFAULT_PITCH);
+            if (source == null) {
+                // Attached to the player, so it moves with them: a mono track
+                // would otherwise fade as they walk away from where it started
+                player.playSound(player, disc.getSoundKey(), soundCategory, volume, DEFAULT_PITCH);
+            } else {
+                player.playSound(source, disc.getSoundKey(), soundCategory, volume, DEFAULT_PITCH);
+            }
         } catch (Exception e) {
             if (plugin.getConfigManager().isDebug()) {
                 plugin.getLogger().warning("Ambient zone failed to play '" + disc.getSoundKey()
@@ -1315,10 +1413,11 @@ public class AmbientZoneManager {
             // Reading the location and playing sound belongs on their region thread
             SchedulerUtil.runPlayerTask(plugin, player, () -> evaluatePlayer(player));
             // The dispatch is asynchronous, so report on the configuration instead
-            return findZoneFor(player.getLocation()) != null;
+            Location loc = player.getLocation();
+            return findZoneFor(loc) != null || pointZoneCovers(loc, player.getUniqueId());
         }
         evaluatePlayer(player);
-        return playerZone.containsKey(player.getUniqueId());
+        return playerZone.containsKey(player.getUniqueId()) || inPointZone(player.getUniqueId());
     }
 
     /**

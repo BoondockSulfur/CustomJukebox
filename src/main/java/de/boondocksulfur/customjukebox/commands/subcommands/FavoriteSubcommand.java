@@ -36,8 +36,25 @@ public class FavoriteSubcommand implements SubCommand {
     private static final List<String> ACTIONS = Arrays.asList("add", "remove", "toggle", "list", "play", "clear");
     /** Reserved playlist id for the ad-hoc favourites playlist. */
     private static final String FAVORITES_PLAYLIST_ID = "__favorites__";
-    /** Where each player's favourites playback was last started. */
-    private final Map<UUID, Location> activeFavorites = new ConcurrentHashMap<>();
+    /**
+     * Where each player's favourites playback was last started. Kept as world
+     * name and block position: a Location would hold on to its world after an
+     * unload.
+     */
+    private final Map<UUID, FavoriteSpot> activeFavorites = new ConcurrentHashMap<>();
+
+    private record FavoriteSpot(String world, int x, int y, int z) {
+        static FavoriteSpot of(Location location) {
+            return new FavoriteSpot(location.getWorld().getName(),
+                location.getBlockX(), location.getBlockY(), location.getBlockZ());
+        }
+
+        /** The spot as a location, or null if its world is not loaded. */
+        Location toLocation() {
+            org.bukkit.World w = org.bukkit.Bukkit.getWorld(world);
+            return w == null ? null : new Location(w, x, y, z);
+        }
+    }
     /** Flags {@code favorite play} accepts, in any order. */
     private static final List<String> PLAY_FLAGS = Arrays.asList(
         "shuffle", "loop", "repeat-one", "off", "global", "world", "50", "100", "200");
@@ -220,8 +237,9 @@ public class FavoriteSubcommand implements SubCommand {
         // One favourites playback per player: starting again replaces the last
         // one instead of stacking up playbacks all over the map
         String playlistId = FAVORITES_PLAYLIST_ID + ":" + player.getUniqueId();
-        Location previous = activeFavorites.remove(player.getUniqueId());
-        if (previous != null && previous.isWorldLoaded()
+        FavoriteSpot previousSpot = activeFavorites.remove(player.getUniqueId());
+        Location previous = previousSpot == null ? null : previousSpot.toLocation();
+        if (previous != null
                 && playlistId.equals(plugin.getPlaybackManager().getPlaylistIdAt(previous))) {
             plugin.getPlaybackManager().stopPlayback(previous);
         }
@@ -231,7 +249,7 @@ public class FavoriteSubcommand implements SubCommand {
             plugin.getLanguageManager().getRawMessage("favorite-playlist-name"), "", ids);
 
         plugin.getPlaybackManager().startPlaylistPlayback(playLocation, adHoc, repeatMode, shuffle, range);
-        activeFavorites.put(player.getUniqueId(), playLocation);
+        activeFavorites.put(player.getUniqueId(), FavoriteSpot.of(playLocation));
 
         Map<String, String> placeholders = new HashMap<>();
         placeholders.put("count", String.valueOf(discs.size()));

@@ -144,7 +144,7 @@ public class ZoneSubcommand implements SubCommand {
             + "  &7Volume: &f" + (zone.inheritsVolume() ? "inherit" : formatNumber(zone.getVolume()))
             + "  &7Priority: &f" + zone.getPriority());
         MessageUtil.sendMessage(sender, "&7Sound source: &f" + (zone.isPointSource()
-            ? "point (from the center, fades with distance)" : "player (follows the listener)"));
+            ? "point (from the center; mono fades, stereo stops on leaving)" : "player (follows the listener)"));
         warnIfIdle(sender, zone);
         return true;
     }
@@ -305,8 +305,8 @@ public class ZoneSubcommand implements SubCommand {
     /**
      * {@code /cjb zone source <zone> <player|point>}: where the music comes from.
      * {@code player} (default) plays it at each listener's position;
-     * {@code point} plays it from the zone center like a jukebox, fading with
-     * distance and not cut off when leaving.
+     * {@code point} plays it from the zone center like a jukebox: mono tracks
+     * fade with distance and are not cut off when leaving, stereo tracks stop.
      */
     private boolean handleSource(CommandSender sender, String[] args) {
         AmbientZone zone = require(sender, args);
@@ -550,12 +550,17 @@ public class ZoneSubcommand implements SubCommand {
                 msg(sender, "zone-not-found", "zone", id);
                 return true;
             }
+            if (!zone.isJukeboxBound()) {
+                // Releasing would pause an ordinary zone for a jukebox it never had
+                msg(sender, "zone-jukebox-none", "zone", id);
+                return true;
+            }
             if (option.equals("release")) {
                 zone.removeJukebox();
                 return applied(sender, zone, "zone-jukebox-released");
             }
-            zone.setJukeboxBound(false);
-            return applied(sender, zone, "zone-jukebox-unbound");
+            boolean restored = zone.unbindJukebox();
+            return applied(sender, zone, restored ? "zone-jukebox-unbound-restored" : "zone-jukebox-unbound");
         }
         if (!option.isEmpty()) {
             msg(sender, "zone-usage-jukebox");
@@ -590,13 +595,13 @@ public class ZoneSubcommand implements SubCommand {
             MessageUtil.sendMessage(sender, plugin.getLanguageManager()
                 .getMessage("zone-jukebox-already-placed", placeholders));
             return true;
-        } else if (!zone.isJukeboxBound()) {
-            zone.setJukeboxBound(true);
-            plugin.getAmbientZoneManager().saveZone(zone);
         }
 
-        de.boondocksulfur.customjukebox.utils.InventoryUtil.giveOrDrop(player,
-            de.boondocksulfur.customjukebox.listeners.ZoneJukeboxListener.createItem(zone));
+        // An existing zone keeps playing as it is until the jukebox is actually
+        // placed; placing it binds the zone. Only the token is stored now.
+        org.bukkit.inventory.ItemStack item = de.boondocksulfur.customjukebox.listeners.ZoneJukeboxListener.createItem(zone);
+        plugin.getAmbientZoneManager().saveZone(zone, false);
+        de.boondocksulfur.customjukebox.utils.InventoryUtil.giveOrDrop(player, item);
         msg(sender, "zone-jukebox-given", "zone", zone.getId());
         return true;
     }

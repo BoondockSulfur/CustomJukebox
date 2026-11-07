@@ -548,6 +548,12 @@ public class PlaybackManager {
 
                 // Restart with same settings
                 startPlayback(location, playback.getDisc(), playback.isLoop(), playback.getRange());
+                if (!activePlaybacks.containsKey(playback.getLocationKey())) {
+                    // Start cancelled by a companion plugin: nothing plays here any more
+                    playlistQueues.remove(playback.getLocationKey());
+                    resumeZonesIfEnabled(playback);
+                    continue;
+                }
                 restarted++;
             }
         }
@@ -918,6 +924,11 @@ public class PlaybackManager {
                 // Start new playback with loop and range enabled
                 // This will create a fresh playback session and new loop task
                 startPlayback(location, playback.getDisc(), true, playback.getRange());
+                if (!activePlaybacks.containsKey(locationKey)) {
+                    // Start cancelled by a companion plugin: the loop ends here
+                    resumeZonesIfEnabled(playback);
+                    return;
+                }
 
                 if (plugin.getConfigManager().isDebug()) {
                     plugin.getLogger().info("Looping playback at " + locationKey);

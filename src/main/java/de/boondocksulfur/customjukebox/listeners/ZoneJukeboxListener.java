@@ -54,10 +54,12 @@ public class ZoneJukeboxListener implements Listener {
             ItemUtil.setDisplayName(meta, "&6Zone Jukebox: &e" + zone.getId());
             ItemUtil.setLore(meta, List.of(
                 "&7Place it where the music of zone &f" + zone.getId(),
-                "&7should come from. It fades with distance.",
+                "&7should come from.",
                 "&8Right-click (admins): zone settings",
                 "&8Break it to move it - the zone pauses meanwhile."));
             meta.getPersistentDataContainer().set(ItemUtil.ZONE_JUKEBOX_KEY, PersistentDataType.STRING, zone.getId());
+            meta.getPersistentDataContainer().set(ItemUtil.ZONE_JUKEBOX_TOKEN_KEY, PersistentDataType.STRING,
+                zone.issueJukeboxToken());
             item.setItemMeta(meta);
         }
         return item;
@@ -69,9 +71,15 @@ public class ZoneJukeboxListener implements Listener {
             ? null : ItemUtil.getPdcString(item, ItemUtil.ZONE_JUKEBOX_KEY);
     }
 
+    /** Jukebox token carried by a zone jukebox item, or null for items from before tokens. */
+    private static String tokenOf(ItemStack item) {
+        return ItemUtil.getPdcString(item, ItemUtil.ZONE_JUKEBOX_TOKEN_KEY);
+    }
+
     /**
-     * Refuses a placement that cannot work: the zone is gone, or it already has
-     * its one jukebox standing somewhere.
+     * Refuses a placement that cannot work: the zone is gone, the item is left
+     * over from an earlier binding, or the zone already has its one jukebox
+     * standing somewhere.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlaceCheck(BlockPlaceEvent event) {
@@ -85,6 +93,12 @@ public class ZoneJukeboxListener implements Listener {
             event.setCancelled(true);
             MessageUtil.sendMessage(player, plugin.getLanguageManager()
                 .getMessage("zone-jukebox-unknown-zone", "zone", zoneId));
+            return;
+        }
+        if (!zone.acceptsJukeboxToken(tokenOf(event.getItemInHand()))) {
+            event.setCancelled(true);
+            MessageUtil.sendMessage(player, plugin.getLanguageManager()
+                .getMessage("zone-jukebox-stale-item", "zone", zoneId));
             return;
         }
         if (zone.isJukeboxPlaced()) {
@@ -102,7 +116,7 @@ public class ZoneJukeboxListener implements Listener {
             return;
         }
         AmbientZone zone = plugin.getAmbientZoneManager().getZone(zoneId);
-        if (zone == null || zone.isJukeboxPlaced()) {
+        if (zone == null || zone.isJukeboxPlaced() || !zone.acceptsJukeboxToken(tokenOf(event.getItemInHand()))) {
             return; // Refused above
         }
         Block block = event.getBlockPlaced();
@@ -111,6 +125,7 @@ public class ZoneJukeboxListener implements Listener {
             state.update(true, false);
         }
 
+        boolean converted = zone.rememberShapeBeforeJukebox();
         zone.setType(AmbientZone.ZoneType.RADIUS);
         zone.setWorld(block.getWorld().getName());
         zone.setCenter(block.getX() + 0.5, block.getY() + 0.5, block.getZ() + 0.5);
@@ -119,7 +134,7 @@ public class ZoneJukeboxListener implements Listener {
         plugin.getAmbientZoneManager().saveZone(zone);
 
         MessageUtil.sendMessage(event.getPlayer(), plugin.getLanguageManager()
-            .getMessage("zone-jukebox-placed", "zone", zoneId));
+            .getMessage(converted ? "zone-jukebox-placed-converted" : "zone-jukebox-placed", "zone", zoneId));
         String idle = plugin.getAmbientZoneManager().getIdleReasonKey(zone);
         if (idle != null) {
             MessageUtil.sendMessage(event.getPlayer(), plugin.getLanguageManager()
